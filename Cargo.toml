@@ -5,9 +5,11 @@ members = [
     "crates/anon-detect",
     "crates/anon-render",
     "crates/anon-track",
+    "crates/anon-review",
     "crates/anon-io",
     "crates/anon-pipeline",
     "crates/anon-cli",
+    "crates/anon-gui",
 ]
 
 [workspace.package]
@@ -16,12 +18,18 @@ edition = "2024"
 rust-version = "1.92"
 license = "AGPL-3.0-only"
 repository = "https://github.com/wendibus/reco-anonymize"
+homepage = "https://github.com/wendibus/reco-anonymize"
+readme = "README.md"
+authors = ["Björn"]
+keywords = ["anonymization", "privacy", "video", "ffmpeg", "onnx"]
+categories = ["multimedia::video", "computer-vision"]
 
 [workspace.dependencies]
 anon-model = { path = "crates/anon-model" }
 anon-detect = { path = "crates/anon-detect", default-features = false }
 anon-render = { path = "crates/anon-render" }
 anon-track = { path = "crates/anon-track" }
+anon-review = { path = "crates/anon-review" }
 anon-io = { path = "crates/anon-io" }
 anon-pipeline = { path = "crates/anon-pipeline" }
 

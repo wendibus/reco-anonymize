@@ -11,8 +11,6 @@ use anon_model::{AnalysisSettings, ModelRef, ProjectDir, TileSettings, Zone};
 use anon_pipeline::{AnalyzeOptions, RenderOptions};
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
-use serde::Deserialize;
-use sha2::{Digest, Sha256};
 
 #[derive(Parser)]
 #[command(
@@ -157,20 +155,6 @@ enum CodecArg {
     H264,
 }
 
-/// `<model>.json`, written by `scripts/export_rfdetr.py`.
-#[derive(Deserialize)]
-struct ModelManifest {
-    id: String,
-    sha256: String,
-    license: String,
-    #[serde(default = "default_person_class")]
-    person_class: usize,
-}
-
-fn default_person_class() -> usize {
-    1
-}
-
 fn project_dir(p: &Path) -> ProjectDir {
     if p.extension().is_some_and(|e| e == "anon") || p.join("project.json").exists() {
         ProjectDir::open(p)
@@ -180,31 +164,7 @@ fn project_dir(p: &Path) -> ProjectDir {
 }
 
 fn load_model(path: &Path) -> Result<(RfDetrSeg, ModelRef)> {
-    let mut manifest_path = path.as_os_str().to_owned();
-    manifest_path.push(".json");
-    let manifest_path = PathBuf::from(manifest_path);
-    let manifest: ModelManifest = serde_json::from_slice(
-        &std::fs::read(&manifest_path)
-            .with_context(|| format!("model manifest {} missing", manifest_path.display()))?,
-    )
-    .context("invalid model manifest")?;
-    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-    let sha = hex::encode(Sha256::digest(&bytes));
-    if sha != manifest.sha256 {
-        bail!(
-            "model hash {sha} does not match manifest {}; refusing unknown model",
-            manifest.sha256
-        );
-    }
-    let model = RfDetrSeg::load(path, manifest.person_class)?;
-    Ok((
-        model,
-        ModelRef {
-            id: manifest.id,
-            sha256: sha,
-            license: manifest.license,
-        },
-    ))
+    Ok(anon_detect::rfdetr::load_verified(path)?)
 }
 
 fn progress_line(done: u64, total: Option<u64>) {

@@ -1,5 +1,8 @@
 # reco-anonymize
 
+[![CI](https://github.com/wendibus/reco-anonymize/actions/workflows/ci.yml/badge.svg)](https://github.com/wendibus/reco-anonymize/actions/workflows/ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
+
 Opaque head anonymization for reco panorama videos (and any other footage), 100 % local.
 Every detected human head is covered with a solid fill; resolution, timestamps (VFR included),
 colour description, rotation and all audio streams stay as they were. Container metadata (GPS,
@@ -37,6 +40,24 @@ reco-anon status  game.mp4                                          # export CLE
 - `approve` refuses a clip in which nobody was detected (likely wrong model or class index)
   unless `--no-people-expected` is given.
 
+## Review app
+
+![Review app, export view on a synthetic test clip](docs/review-app.png)
+
+```sh
+cargo run --release -p anon-gui -- game.mp4      # or: reco-anon-review game.mp4.anon
+```
+
+Same workflow without the command line: open a video, choose the model, Analyze, then step
+through the flagged frames (`n` jumps to the next unreviewed one, the timeline shows what is
+left). Outline view shows every mask; Export view shows exactly what the export will contain.
+
+- Click a mask to select it. Suppress false positives (a reason is required), restore them.
+- Drag on the picture to add a head the detector missed. With a manual track selected, a box on
+  another frame adds a keyframe; frames in between are interpolated.
+- Approve unlocks only after every flagged frame has been shown. Render asks for the output path
+  and audits the export right away.
+
 ## Model
 
 RF-DETR-Seg (Apache-2.0 code and COCO weights). Export once on the Mac:
@@ -72,6 +93,8 @@ On machines where the ONNX Runtime binaries cannot be downloaded at build time, 
 | `anon-render` | conservative span rasterizer, opaque fill in planar YUV (8/10-bit, 4:2:0/4:2:2/4:4:4) |
 | `anon-io` | probe, fingerprint, decode, VFR-safe re-encode, audio stream copy, metadata strip |
 | `anon-pipeline` | analyze (resumable), flags, review gate, render, verification, audit |
+| `anon-review` | headless review session: frame seeking, overlays, edits, approval readiness |
 | `anon-cli` | `reco-anon` |
+| `anon-gui` | `reco-anon-review` (Slint) |
 
 Milestones and design: [`docs/SPEC.md`](docs/SPEC.md).

@@ -5,6 +5,11 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [[bin]]
 name = "reco-anon"
@@ -15,10 +20,7 @@ anon-model.workspace = true
 anon-detect = { workspace = true, features = ["ort"] }
 anon-io.workspace = true
 anon-pipeline.workspace = true
-serde.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
-hex.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 env_logger.workspace = true

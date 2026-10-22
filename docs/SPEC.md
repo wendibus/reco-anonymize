@@ -276,3 +276,28 @@ Changes vs. v0.2, all in the fail-closed direction:
 - `status` reports the export as clean only when the audited file is unchanged since the audit and no hit is open. A new render deletes the previous audit.
 
 **Tests:** 7 tracker tests, including forward fragmentation healed by the backward pass. E2E tests cover a clean audit passing, a deliberately suppressed track producing 50 audit hits, and a simulated crash at frame 270 resuming from 250 with only 50 frames re-inferred.
+
+## 15. M3 status (implemented)
+
+**`anon-review`: headless review session**
+
+All UI behaviour lives here and is tested without a window:
+- Frame-exact random access (`anon-io::FrameSeeker`: decodes forward for short steps, otherwise seeks to the previous keyframe and backs off further if the seek lands late).
+- Two views: *Outline* shows the original picture with masks (auto yellow, manual green, suppressed red dashed, interpolated dashed, zones tinted); *Export* shows exactly what the render will paint, using the same resolver.
+- Hit-testing picks the smallest mask under the cursor.
+- Suppress requires a reason; restore undoes it.
+- Manual heads are drawn as boxes. While a manual track is selected, a box on another frame adds a keyframe to it, and the frames in between are interpolated.
+- Automatic tracks can only be suppressed, never deleted.
+- Each edit is saved immediately and voids the approval.
+
+**Stricter gate in the app**
+- A flagged frame counts as reviewed once it has been displayed. This is stored in `project.json` (`review.reviewed_frames`) and reset by re-analysis.
+- Approve stays disabled until every flagged frame has been reviewed and no frame is in error. The no-people check still applies.
+
+**`anon-gui` (`reco-anon-review`, Slint 1.15 + fluent-dark, same stack as reco-gui)**
+- Frame view with drag-to-add and click-to-select.
+- Timeline strip: error red, unreviewed flag orange, reviewed green, people grey.
+- Side panel: flags, review progress, masks in the frame, selection actions, approval readiness, export state.
+- Keyboard: ←/→ (Shift ×10), `n`/`p` for flagged frames, `o` for the view, `Esc` to deselect.
+- Jobs on worker threads: Analyze, Preview (opens the system player), Render (save dialog, then an automatic audit), Audit.
+- The model path is remembered in `~/.reco-anonymize/last-model`.

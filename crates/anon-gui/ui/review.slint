@@ -1,0 +1,480 @@
+// reco-anon review — review app for reco-anonymize.
+// Colours follow reco-gui (fluent-dark, #1e1e1e cards, #8ae68a accent).
+
+import { Button, LineEdit, Slider, CheckBox, ProgressIndicator, ScrollView } from "std-widgets.slint";
+
+export struct TrackInfo {
+    id: int,
+    label: string,
+    manual: bool,
+    suppressed: bool,
+    selected: bool,
+}
+
+component Card inherits Rectangle {
+    in property <string> title;
+    background: #1e1e1e;
+    border-radius: 6px;
+    VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+        if root.title != "": Text {
+            text: root.title;
+            font-weight: 700;
+            color: #cfcfcf;
+        }
+        @children
+    }
+}
+
+component Legend inherits HorizontalLayout {
+    in property <color> swatch;
+    in property <string> label;
+    spacing: 6px;
+    Rectangle {
+        width: 12px;
+        height: 12px;
+        border-width: 2px;
+        border-color: root.swatch;
+        border-radius: 2px;
+    }
+    Text {
+        text: root.label;
+        color: #a8a8a8;
+        font-size: 11px;
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "reco-anon review" + (root.project-name != "" ? " — " + root.project-name : "");
+    preferred-width: 1500px;
+    preferred-height: 900px;
+    background: #141414;
+
+    // ---- state from Rust ---------------------------------------------
+    in property <string> project-name;
+    in property <bool> has-project;
+    in property <image> frame-image;
+    in property <image> timeline-image;
+    in property <int> frame-count: 1;
+    in-out property <int> current-frame;
+    in property <string> frame-info;
+    in property <string> flag-info;
+    in property <bool> opaque-mode;
+    in property <string> review-progress;
+    in property <[TrackInfo]> tracks;
+    in property <string> selected-info;
+    in property <bool> selected-manual;
+    in property <bool> selected-suppressed;
+    in property <bool> has-selection;
+    in property <string> readiness;
+    in property <bool> can-approve;
+    in property <bool> approved;
+    in property <string> export-state;
+    in property <string> model-path;
+    in property <bool> job-running;
+    in property <float> job-progress;
+    in property <string> job-text;
+    in property <string> message;
+    in property <bool> message-error;
+    in property <bool> dirty;
+
+    // ---- callbacks to Rust -------------------------------------------
+    callback open-project();
+    callback choose-model();
+    callback goto(int);
+    callback step(int);
+    callback next-flag(bool);
+    callback set-opaque(bool);
+    callback select-at(length, length, length, length);
+    callback add-box(length, length, length, length, length, length);
+    callback select-track(int);
+    callback deselect();
+    callback suppress(string);
+    callback restore();
+    callback delete-keyframe();
+    callback save();
+    callback approve(string, bool);
+    callback run-analyze();
+    callback run-preview();
+    callback run-render();
+    callback run-audit();
+
+    forward-focus: keys;
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.LeftArrow) {
+                root.step(event.modifiers.shift ? -10 : -1);
+                return accept;
+            }
+            if (event.text == Key.RightArrow) {
+                root.step(event.modifiers.shift ? 10 : 1);
+                return accept;
+            }
+            if (event.text == "n") {
+                root.next-flag(true);
+                return accept;
+            }
+            if (event.text == "p") {
+                root.next-flag(false);
+                return accept;
+            }
+            if (event.text == "o") {
+                root.set-opaque(!root.opaque-mode);
+                return accept;
+            }
+            if (event.text == Key.Escape) {
+                root.deselect();
+                return accept;
+            }
+            reject
+        }
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 8px;
+
+            // ---- top bar -------------------------------------------------
+            HorizontalLayout {
+                spacing: 6px;
+                height: 34px;
+                Button {
+                    text: "Open…";
+                    clicked => { root.open-project(); }
+                }
+                Button {
+                    text: "Model…";
+                    clicked => { root.choose-model(); }
+                }
+                Text {
+                    text: root.model-path == "" ? "no model selected" : root.model-path;
+                    color: #8a8a8a;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    max-width: 320px;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Button {
+                    text: "Analyze";
+                    enabled: root.has-project && !root.job-running && root.model-path != "";
+                    clicked => { root.run-analyze(); }
+                }
+                Button {
+                    text: "Preview";
+                    enabled: root.has-project && !root.job-running;
+                    clicked => { root.run-preview(); }
+                }
+                Button {
+                    text: "Render…";
+                    enabled: root.has-project && !root.job-running && root.approved;
+                    clicked => { root.run-render(); }
+                }
+                Button {
+                    text: "Audit…";
+                    enabled: root.has-project && !root.job-running && root.model-path != "";
+                    clicked => { root.run-audit(); }
+                }
+                Button {
+                    text: root.dirty ? "Save*" : "Save";
+                    enabled: root.has-project && root.dirty;
+                    clicked => { root.save(); }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                vertical-stretch: 1;
+
+                // ---- frame view ------------------------------------------
+                view := Rectangle {
+                    horizontal-stretch: 1;
+                    background: #0b0b0b;
+                    border-radius: 4px;
+                    clip: true;
+
+                    Image {
+                        width: parent.width;
+                        height: parent.height;
+                        source: root.frame-image;
+                        image-fit: contain;
+                    }
+
+                    if !root.has-project: Text {
+                        text: "Open a video or a .anon project to start reviewing.";
+                        color: #8a8a8a;
+                    }
+
+                    band := Rectangle {
+                        visible: touch.pressed && (abs(touch.mouse-x - touch.pressed-x) > 4px || abs(touch.mouse-y - touch.pressed-y) > 4px);
+                        x: min(touch.pressed-x, touch.mouse-x);
+                        y: min(touch.pressed-y, touch.mouse-y);
+                        width: abs(touch.mouse-x - touch.pressed-x);
+                        height: abs(touch.mouse-y - touch.pressed-y);
+                        border-width: 2px;
+                        border-color: #28dc5a;
+                        background: #28dc5a30;
+                    }
+
+                    touch := TouchArea {
+                        enabled: root.has-project;
+                        mouse-cursor: crosshair;
+                        pointer-event(event) => {
+                            if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left) {
+                                if (abs(self.mouse-x - self.pressed-x) > 4px || abs(self.mouse-y - self.pressed-y) > 4px) {
+                                    root.add-box(self.pressed-x, self.pressed-y, self.mouse-x, self.mouse-y, self.width, self.height);
+                                } else {
+                                    root.select-at(self.mouse-x, self.mouse-y, self.width, self.height);
+                                }
+                                keys.focus();
+                            }
+                        }
+                    }
+                }
+
+                // ---- side panel ------------------------------------------
+                ScrollView {
+                    width: 340px;
+                    VerticalLayout {
+                        spacing: 8px;
+                        alignment: start;
+
+                        Card {
+                            title: root.frame-info;
+                            Text {
+                                text: root.flag-info;
+                                color: root.flag-info == "no flags" ? #6a6a6a : #e6c14d;
+                                wrap: word-wrap;
+                            }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Button {
+                                    text: "Outline";
+                                    checkable: true;
+                                    checked: !root.opaque-mode;
+                                    clicked => { root.set-opaque(false); }
+                                }
+                                Button {
+                                    text: "Export view";
+                                    checkable: true;
+                                    checked: root.opaque-mode;
+                                    clicked => { root.set-opaque(true); }
+                                }
+                            }
+                            HorizontalLayout {
+                                spacing: 10px;
+                                Legend { swatch: #ffd200; label: "auto"; }
+                                Legend { swatch: #28dc5a; label: "manual"; }
+                                Legend { swatch: #ff3c3c; label: "suppressed"; }
+                                Legend { swatch: #00c8ff; label: "selected"; }
+                            }
+                        }
+
+                        Card {
+                            title: "Review";
+                            Text {
+                                text: root.review-progress;
+                                color: #cfcfcf;
+                                wrap: word-wrap;
+                            }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Button {
+                                    text: "◀ Prev (p)";
+                                    clicked => { root.next-flag(false); }
+                                }
+                                Button {
+                                    text: "Next unreviewed (n) ▶";
+                                    clicked => { root.next-flag(true); }
+                                }
+                            }
+                            Text {
+                                text: "Click a mask to select it. Drag on the picture to add a head the detector missed. ←/→ step, Shift ×10, O toggles the export view.";
+                                color: #7a7a7a;
+                                font-size: 11px;
+                                wrap: word-wrap;
+                            }
+                        }
+
+                        Card {
+                            title: "Masks in this frame";
+                            for t in root.tracks: Rectangle {
+                                height: 26px;
+                                border-radius: 3px;
+                                background: t.selected ? #00c8ff30 : row.has-hover ? #2a2a2a : transparent;
+                                HorizontalLayout {
+                                    padding-left: 6px;
+                                    spacing: 6px;
+                                    Rectangle {
+                                        width: 10px;
+                                        height: 10px;
+                                        y: (parent.height - self.height) / 2;
+                                        border-radius: 5px;
+                                        background: t.suppressed ? #ff3c3c : t.manual ? #28dc5a : #ffd200;
+                                    }
+                                    Text {
+                                        text: t.label;
+                                        color: #d0d0d0;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                row := TouchArea {
+                                    clicked => { root.select-track(t.id); keys.focus(); }
+                                }
+                            }
+                            if root.tracks.length == 0: Text {
+                                text: "none";
+                                color: #6a6a6a;
+                            }
+                        }
+
+                        Card {
+                            title: "Selected";
+                            visible: root.has-selection;
+                            height: root.has-selection ? self.preferred-height : 0;
+                            Text {
+                                text: root.selected-info;
+                                color: #d0d0d0;
+                                wrap: word-wrap;
+                            }
+                            reason := LineEdit {
+                                placeholder-text: "Reason (required to suppress)";
+                                visible: !root.selected-manual && !root.selected-suppressed;
+                            }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                if !root.selected-manual && !root.selected-suppressed: Button {
+                                    text: "Suppress (false positive)";
+                                    enabled: reason.text != "";
+                                    clicked => { root.suppress(reason.text); reason.text = ""; keys.focus(); }
+                                }
+                                if root.selected-suppressed: Button {
+                                    text: "Restore";
+                                    clicked => { root.restore(); keys.focus(); }
+                                }
+                                if root.selected-manual: Button {
+                                    text: "Delete keyframe here";
+                                    clicked => { root.delete-keyframe(); keys.focus(); }
+                                }
+                                Button {
+                                    text: "Deselect";
+                                    clicked => { root.deselect(); keys.focus(); }
+                                }
+                            }
+                            if root.selected-manual: Text {
+                                text: "Drag a box on another frame to add a keyframe to this track; frames in between are interpolated.";
+                                color: #7a7a7a;
+                                font-size: 11px;
+                                wrap: word-wrap;
+                            }
+                        }
+
+                        Card {
+                            title: "Approval";
+                            Text {
+                                text: root.readiness;
+                                color: root.can-approve ? #8ae68a : #e6c14d;
+                                wrap: word-wrap;
+                            }
+                            note := LineEdit {
+                                placeholder-text: "Note (optional)";
+                            }
+                            nobody := CheckBox {
+                                text: "Clip shows no people";
+                            }
+                            Button {
+                                text: root.approved ? "Approved ✓" : "Approve";
+                                primary: true;
+                                enabled: root.can-approve && !root.approved && !root.job-running;
+                                clicked => { root.approve(note.text, nobody.checked); keys.focus(); }
+                            }
+                            Text {
+                                text: root.export-state;
+                                color: #a8a8a8;
+                                wrap: word-wrap;
+                            }
+                        }
+
+                        Card {
+                            title: "";
+                            visible: root.job-running || root.job-text != "";
+                            ProgressIndicator {
+                                visible: root.job-running;
+                                progress: root.job-progress;
+                                indeterminate: root.job-progress < 0;
+                            }
+                            Text {
+                                text: root.job-text;
+                                color: #cfcfcf;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- timeline ------------------------------------------------
+            Card {
+                title: "";
+                timeline := Rectangle {
+                    height: 22px;
+                    Image {
+                        width: parent.width;
+                        height: parent.height;
+                        source: root.timeline-image;
+                        image-fit: fill;
+                        image-rendering: pixelated;
+                    }
+                    Rectangle {
+                        x: (root.frame-count <= 1 ? 0 : root.current-frame / (root.frame-count - 1)) * (parent.width - 2px);
+                        width: 2px;
+                        background: #ffffff;
+                    }
+                    TouchArea {
+                        enabled: root.has-project;
+                        clicked => {
+                            root.goto(round(self.mouse-x / self.width * (root.frame-count - 1)));
+                            keys.focus();
+                        }
+                        moved => {
+                            if (self.pressed) {
+                                root.goto(round(max(0, min(1, self.mouse-x / self.width)) * (root.frame-count - 1)));
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    Button {
+                        text: "◀◀";
+                        clicked => { root.step(-10); keys.focus(); }
+                    }
+                    Button {
+                        text: "◀";
+                        clicked => { root.step(-1); keys.focus(); }
+                    }
+                    Button {
+                        text: "▶";
+                        clicked => { root.step(1); keys.focus(); }
+                    }
+                    Button {
+                        text: "▶▶";
+                        clicked => { root.step(10); keys.focus(); }
+                    }
+                    Text {
+                        text: root.message;
+                        color: root.message-error ? #e35c5c : #8ae68a;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+                    Text {
+                        text: "orange: flagged · green: reviewed · red: error · grey: people present";
+                        color: #6a6a6a;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}

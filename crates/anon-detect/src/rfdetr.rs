@@ -241,3 +241,48 @@ fn crop_mask(
         },
     ))
 }
+
+/// `<model>.json` next to the ONNX file, written by
+/// `scripts/export_rfdetr.py`.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ModelManifest {
+    pub id: String,
+    pub sha256: String,
+    pub license: String,
+    #[serde(default = "default_person_class")]
+    pub person_class: usize,
+}
+
+fn default_person_class() -> usize {
+    1
+}
+
+/// Load a model only if its sha256 matches its manifest.
+pub fn load_verified(path: &Path) -> Result<(RfDetrSeg, anon_model::ModelRef), DetectError> {
+    use sha2::{Digest, Sha256};
+    let mut mp = path.as_os_str().to_owned();
+    mp.push(".json");
+    let mp = std::path::PathBuf::from(mp);
+    let bytes = std::fs::read(&mp)
+        .map_err(|e| DetectError::Model(format!("model manifest {} missing: {e}", mp.display())))?;
+    let manifest: ModelManifest = serde_json::from_slice(&bytes)
+        .map_err(|e| DetectError::Model(format!("invalid model manifest: {e}")))?;
+    let model_bytes = std::fs::read(path)
+        .map_err(|e| DetectError::Model(format!("reading {}: {e}", path.display())))?;
+    let sha = hex::encode(Sha256::digest(&model_bytes));
+    if sha != manifest.sha256 {
+        return Err(DetectError::Model(format!(
+            "model hash {sha} does not match manifest {}; refusing unknown model",
+            manifest.sha256
+        )));
+    }
+    let model = RfDetrSeg::load(path, manifest.person_class)?;
+    Ok((
+        model,
+        anon_model::ModelRef {
+            id: manifest.id,
+            sha256: sha,
+            license: manifest.license,
+        },
+    ))
+}

@@ -1,0 +1,49 @@
+[package]
+name = "anon-gui"
+description = "reco-anon review: Slint review app for reco-anonymize."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "reco-anon-review"
+path = "src/main.rs"
+
+[dependencies]
+anon-model.workspace = true
+anon-review.workspace = true
+anon-pipeline.workspace = true
+anon-io.workspace = true
+anon-detect = { workspace = true, features = ["ort"] }
+slint = { version = "~1.15", default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "renderer-software", "accessibility", "compat-1-2"] }
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+serde.workspace = true
+anyhow.workspace = true
+log.workspace = true
+env_logger.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+anon-detect = { workspace = true, features = ["coreml"] }
+rfd = "0.15"
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
+
+[build-dependencies]
+slint-build = "~1.15"
+
+[features]
+cuda = ["anon-detect/cuda"]
+load-dynamic = ["anon-detect/load-dynamic"]
+
+[lints]
+workspace = true

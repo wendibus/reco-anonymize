@@ -147,4 +147,7 @@ pub struct ReviewState {
     /// Hex sha256 of tracks + zones + frame table at approval time.
     pub approved_hash: Option<String>,
     pub note: Option<String>,
+    /// Flagged frames a reviewer has looked at in the review app.
+    #[serde(default)]
+    pub reviewed_frames: Vec<u64>,
 }

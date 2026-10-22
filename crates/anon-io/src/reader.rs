@@ -142,3 +142,107 @@ impl RgbConverter {
         Ok(RgbImage::from_raw(w, h, data))
     }
 }
+
+/// Random access to frames by pts, for the review app. Steps forward by
+/// decoding when the target is close, otherwise seeks to the preceding
+/// keyframe and decodes up to the target.
+pub struct FrameSeeker {
+    ictx: format::context::Input,
+    dec: decoder::Video,
+    stream: usize,
+    pub time_base: ff::Rational,
+    last_pts: Option<i64>,
+    eof: bool,
+}
+
+/// Targets this far (in seconds) ahead of the last decoded frame are
+/// reached by decoding instead of seeking.
+const STEP_WINDOW_SECS: f64 = 2.0;
+
+impl FrameSeeker {
+    pub fn open(path: &Path) -> Result<Self, IoError> {
+        let ictx = format::input(path)?;
+        let (stream, dec, time_base) = open_decoder(&ictx)?;
+        Ok(Self {
+            ictx,
+            dec,
+            stream,
+            time_base,
+            last_pts: None,
+            eof: false,
+        })
+    }
+
+    fn decode_next(&mut self) -> Result<Option<(frame::Video, i64)>, IoError> {
+        let mut f = frame::Video::empty();
+        loop {
+            match self.dec.receive_frame(&mut f) {
+                Ok(()) => {
+                    let pts = f.timestamp().or(f.pts()).unwrap_or(i64::MIN);
+                    self.last_pts = Some(pts);
+                    return Ok(Some((f, pts)));
+                }
+                Err(ff::Error::Eof) => return Ok(None),
+                Err(ff::Error::Other { errno }) if errno == ff::util::error::EAGAIN => {}
+                Err(e) => return Err(e.into()),
+            }
+            if self.eof {
+                return Ok(None);
+            }
+            let mut pkt = Packet::empty();
+            match pkt.read(&mut self.ictx) {
+                Ok(()) => {
+                    if pkt.stream() == self.stream {
+                        self.dec.send_packet(&pkt)?;
+                    }
+                }
+                Err(ff::Error::Eof) => {
+                    self.eof = true;
+                    self.dec.send_eof()?;
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+
+    fn seek_before(&mut self, pts: i64, back_secs: f64) -> Result<(), IoError> {
+        let tb = f64::from(self.time_base);
+        let us = ((pts as f64 * tb - back_secs).max(0.0) * 1e6) as i64;
+        // ffmpeg-next passes the range end as avformat_seek_file max_ts
+        self.ictx.seek(us, ..us)?;
+        self.dec.flush();
+        self.eof = false;
+        self.last_pts = None;
+        Ok(())
+    }
+
+    /// The frame with exactly this pts, or `None` if it cannot be found.
+    pub fn frame_at(&mut self, pts: i64) -> Result<Option<frame::Video>, IoError> {
+        let tb = f64::from(self.time_base);
+        let close = self
+            .last_pts
+            .is_some_and(|l| l < pts && (pts - l) as f64 * tb <= STEP_WINDOW_SECS);
+        let mut back = 0.0;
+        for attempt in 0..5 {
+            if attempt > 0 || !close {
+                self.seek_before(pts, back)?;
+            }
+            let mut first = true;
+            while let Some((f, p)) = self.decode_next()? {
+                if p == pts {
+                    return Ok(Some(f));
+                }
+                if p > pts {
+                    if first {
+                        break; // seek landed after the target: go further back
+                    }
+                    log::warn!("no frame with pts {pts} (next is {p})");
+                    return Ok(None);
+                }
+                first = false;
+            }
+            back = if back == 0.0 { 1.0 } else { back * 4.0 };
+        }
+        Ok(None)
+    }
+}

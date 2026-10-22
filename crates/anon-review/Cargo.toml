@@ -1,0 +1,27 @@
+[package]
+name = "anon-review"
+description = "Headless review session for reco-anonymize: frame access, overlays, edits, approval readiness."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+anon-model.workspace = true
+anon-render.workspace = true
+anon-io.workspace = true
+anon-pipeline.workspace = true
+anon-detect.workspace = true
+thiserror.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+anon-track.workspace = true
+
+[lints]
+workspace = true

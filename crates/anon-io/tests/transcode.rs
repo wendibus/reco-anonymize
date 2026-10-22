@@ -314,3 +314,44 @@ fn ten_bit_source_stays_ten_bit() {
     assert!(gray_at(&dst, 100, 100, 12) <= 20);
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn seeker_returns_exact_frames_in_any_order() {
+    if !have("ffmpeg") {
+        return;
+    }
+    anon_io::init().unwrap();
+    let dir = tmpdir("seek");
+    let src = dir.join("src.mp4");
+    // keyframe every 25 frames, frame number burned in as brightness ramp
+    let st = Command::new("ffmpeg")
+        .args([
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=160x120:rate=25:duration=8",
+        ])
+        .args([
+            "-c:v", "libx264", "-g", "25", "-bf", "2", "-pix_fmt", "yuv420p",
+        ])
+        .arg(&src)
+        .status()
+        .unwrap();
+    assert!(st.success());
+    // reference: sequential decode
+    let mut r = anon_io::FrameReader::open(&src).unwrap();
+    let mut seq = Vec::new();
+    while let Some((f, p)) = r.next_frame().unwrap() {
+        seq.push((p, f.data(0)[..160].to_vec()));
+    }
+    assert_eq!(seq.len(), 200);
+    let mut s = anon_io::FrameSeeker::open(&src).unwrap();
+    for i in [150usize, 3, 4, 5, 199, 0, 100, 26, 24, 25, 120, 121, 60] {
+        let f = s.frame_at(seq[i].0).unwrap().expect("frame");
+        assert_eq!(&f.data(0)[..160], &seq[i].1[..], "frame {i}");
+    }
+    std::fs::remove_dir_all(dir).ok();
+}
