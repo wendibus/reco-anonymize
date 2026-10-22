@@ -39,7 +39,7 @@ anon-pipeline = { path = "crates/anon-pipeline" }
 # (ORT session factory with CoreML/CUDA/TensorRT execution providers).
 reco-detect = { git = "https://github.com/reco-project/video-stitcher", rev = "cd3bf434b92c678a5585cd9be2330eda49782a8a", default-features = false }
 
-ffmpeg-next = { version = "8", default-features = false, features = ["codec", "format", "software-scaling"] }
+ffmpeg-next = { version = "9", default-features = false, features = ["codec", "format", "software-scaling"] }
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

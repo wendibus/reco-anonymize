@@ -105,7 +105,7 @@ impl RfDetrSeg {
     fn preprocess(&self, tile: &RgbImage) -> Vec<f32> {
         let n = (self.size * self.size) as usize;
         let mut out = vec![0.0f32; 3 * n];
-        for (i, px) in tile.data.chunks_exact(3).enumerate() {
+        for (i, px) in tile.data.as_chunks::<3>().0.iter().enumerate() {
             for c in 0..3 {
                 out[c * n + i] = (px[c] as f32 / 255.0 - MEAN[c]) / STD[c];
             }

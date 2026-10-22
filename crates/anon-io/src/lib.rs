@@ -4,7 +4,7 @@
 //! timestamps from a frame counter, copies only the first audio stream and
 //! does not carry colour metadata. Anonymized exports must keep the source
 //! timing (VFR), every audio stream and the colour description, so this
-//! crate drives `ffmpeg-next` (same major version as reco) directly.
+//! crate drives `ffmpeg-next` 9 directly (FFmpeg 6.1 up to 8.x).
 
 pub mod probe;
 pub mod reader;

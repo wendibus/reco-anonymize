@@ -120,8 +120,10 @@ impl FrameTable {
     pub fn from_bytes(b: &[u8]) -> Self {
         Self {
             records: b
-                .chunks_exact(RECORD_SIZE)
-                .map(FrameRecord::decode)
+                .as_chunks::<RECORD_SIZE>()
+                .0
+                .iter()
+                .map(|c| FrameRecord::decode(c))
                 .collect(),
         }
     }

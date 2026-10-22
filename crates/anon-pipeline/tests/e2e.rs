@@ -386,7 +386,9 @@ impl anon_detect::text::TextMapModel for Bright {
     fn prob_map(&mut self, img: &RgbImage) -> Result<Vec<f32>, DetectError> {
         Ok(img
             .data
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|p| {
                 if p.iter().all(|&c| c > 200) {
                     0.9

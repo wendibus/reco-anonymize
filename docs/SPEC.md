@@ -232,7 +232,7 @@ impl Anonymizer {
 
 | Question | Finding | Decision |
 |---|---|---|
-| reco-io decoder/encoder outside `StitchJob`? | `VideoDecoder::open` works standalone. `VideoEncoder` writes CFR timestamps from a frame counter, copies only the first audio stream, sets no colour tags. | Own I/O crate `anon-io` on `ffmpeg-next` 8 (same as reco). Required for VFR, all audio streams, colour. |
+| reco-io decoder/encoder outside `StitchJob`? | `VideoDecoder::open` works standalone. `VideoEncoder` writes CFR timestamps from a frame counter, copies only the first audio stream, sets no colour tags. | Own I/O crate `anon-io` on `ffmpeg-next` (now 9, which also builds against the FFmpeg 8.x of current Homebrew). Required for VFR, all audio streams, colour. |
 | reco-detect backend for non-YOLO output? | `UnifiedDetector` and postprocess are YOLO-shaped; `create_ort_session` is generic (EP selection, input size). | Link `reco-detect` for the session only; RF-DETR decoding lives in `anon-detect`. |
 | wgpu 28 device sharing | Possible, but not needed: painting is a few spans per head. | `anon-render` paints on the CPU in the YUV domain, bit-exact, no readback. wgpu stays an option for the push API. |
 | PaddleOCR license | Open | Still open for M4. |

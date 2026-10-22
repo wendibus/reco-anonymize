@@ -120,15 +120,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # BtbN builds; prefer FFmpeg 7.1, else the newest <= 8.0 (ffmpeg-sys-next 8.x)
+          trap { "::error::$_"; exit 1 }
+          # BtbN builds of a released FFmpeg (not master); newest version wins
           $rel = Invoke-RestMethod "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest" -Headers @{ Authorization = "Bearer $env:GH_TOKEN" }
           $cands = $rel.assets | Where-Object { $_.name -match '^ffmpeg-n(\d+)\.(\d+).*-win64-gpl-shared-.*\.zip$' } | ForEach-Object {
             $null = $_.name -match '^ffmpeg-n(\d+)\.(\d+)'
             [pscustomobject]@{ Asset = $_; Ver = [int]$Matches[1] * 100 + [int]$Matches[2] }
-          } | Where-Object { $_.Ver -le 800 }
-          $pick = ($cands | Where-Object { $_.Ver -eq 701 } | Select-Object -First 1)
-          if (-not $pick) { $pick = $cands | Sort-Object Ver -Descending | Select-Object -First 1 }
-          if (-not $pick) { $rel.assets.name; throw "no usable FFmpeg build" }
+          }
+          $pick = $cands | Sort-Object Ver -Descending | Select-Object -First 1
+          if (-not $pick) {
+            "::error::no FFmpeg win64 gpl-shared release build among: $(($rel.assets.name) -join ', ')"
+            exit 1
+          }
           Write-Output "using $($pick.Asset.name)"
           Invoke-WebRequest $pick.Asset.browser_download_url -OutFile ffmpeg.zip
           Expand-Archive ffmpeg.zip -DestinationPath "$env:RUNNER_TEMP/ffmpeg"

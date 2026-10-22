@@ -38,7 +38,7 @@ impl TextMapModel for PpOcrDet {
         let (w, h) = (img.width as usize, img.height as usize);
         let n = w * h;
         let mut x = vec![0.0f32; 3 * n];
-        for (i, px) in img.data.chunks_exact(3).enumerate() {
+        for (i, px) in img.data.as_chunks::<3>().0.iter().enumerate() {
             // BGR channel order
             for (c, &v) in [px[2], px[1], px[0]].iter().enumerate() {
                 x[c * n + i] = (f32::from(v) / 255.0 - MEAN[c]) / STD[c];

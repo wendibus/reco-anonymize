@@ -14,7 +14,7 @@ pub struct Rgba {
 impl Rgba {
     pub fn from_rgb(img: &RgbImage) -> Self {
         let mut data = Vec::with_capacity((img.width * img.height * 4) as usize);
-        for px in img.data.chunks_exact(3) {
+        for px in img.data.as_chunks::<3>().0.iter() {
             data.extend_from_slice(&[px[0], px[1], px[2], 255]);
         }
         Self {

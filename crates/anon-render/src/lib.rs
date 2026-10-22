@@ -111,7 +111,7 @@ impl Coverage {
                             j = i;
                         }
                         xs.sort_by(f32::total_cmp);
-                        for pair in xs.chunks_exact(2) {
+                        for pair in xs.as_chunks::<2>().0.iter() {
                             spans.push((pair[0], pair[1]));
                         }
                     }
@@ -207,8 +207,8 @@ fn fill_span(plane: &mut PlaneMut<'_>, y: u32, x0: u32, x1: u32, bps: usize, v: 
         row.fill(v as u8);
     } else {
         let b = v.to_le_bytes();
-        for px in row.chunks_exact_mut(2) {
-            px.copy_from_slice(&b);
+        for px in row.as_chunks_mut::<2>().0 {
+            *px = b;
         }
     }
 }
