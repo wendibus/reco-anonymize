@@ -192,3 +192,35 @@ mod rot_tests {
         }
     }
 }
+
+impl RgbImage {
+    /// Exact crop (clipped to the image).
+    pub fn crop(&self, x: u32, y: u32, w: u32, h: u32) -> RgbImage {
+        let w = w.min(self.width.saturating_sub(x));
+        let h = h.min(self.height.saturating_sub(y));
+        let mut out = RgbImage::new(w, h);
+        for row in 0..h {
+            let s = (((y + row) * self.width + x) * 3) as usize;
+            let d = ((row * w) * 3) as usize;
+            out.data[d..d + (w * 3) as usize].copy_from_slice(&self.data[s..s + (w * 3) as usize]);
+        }
+        out
+    }
+
+    /// Place at top-left of a `w × h` canvas filled with `fill`.
+    pub fn pad_to(&self, w: u32, h: u32, fill: u8) -> RgbImage {
+        let mut out = RgbImage {
+            width: w,
+            height: h,
+            data: vec![fill; (w * h * 3) as usize],
+        };
+        let cw = self.width.min(w);
+        for row in 0..self.height.min(h) {
+            let s = ((row * self.width) * 3) as usize;
+            let d = ((row * w) * 3) as usize;
+            out.data[d..d + (cw * 3) as usize]
+                .copy_from_slice(&self.data[s..s + (cw * 3) as usize]);
+        }
+        out
+    }
+}

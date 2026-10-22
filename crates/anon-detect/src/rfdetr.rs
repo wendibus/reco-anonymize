@@ -242,23 +242,33 @@ fn crop_mask(
     ))
 }
 
-/// `<model>.json` next to the ONNX file, written by
-/// `scripts/export_rfdetr.py`.
+/// `<model>.json` next to the ONNX file, written by the scripts in
+/// `scripts/`.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ModelManifest {
     pub id: String,
     pub sha256: String,
     pub license: String,
+    /// "person-seg" (default) or "text-db".
+    #[serde(default = "default_kind")]
+    pub kind: String,
     #[serde(default = "default_person_class")]
     pub person_class: usize,
+}
+
+fn default_kind() -> String {
+    "person-seg".into()
 }
 
 fn default_person_class() -> usize {
     1
 }
 
-/// Load a model only if its sha256 matches its manifest.
-pub fn load_verified(path: &Path) -> Result<(RfDetrSeg, anon_model::ModelRef), DetectError> {
+/// Read the manifest, check the model file's sha256 and kind.
+pub fn verify_manifest(
+    path: &Path,
+    kind: &str,
+) -> Result<(ModelManifest, anon_model::ModelRef), DetectError> {
     use sha2::{Digest, Sha256};
     let mut mp = path.as_os_str().to_owned();
     mp.push(".json");
@@ -267,6 +277,13 @@ pub fn load_verified(path: &Path) -> Result<(RfDetrSeg, anon_model::ModelRef), D
         .map_err(|e| DetectError::Model(format!("model manifest {} missing: {e}", mp.display())))?;
     let manifest: ModelManifest = serde_json::from_slice(&bytes)
         .map_err(|e| DetectError::Model(format!("invalid model manifest: {e}")))?;
+    if manifest.kind != kind {
+        return Err(DetectError::Model(format!(
+            "{} is a '{}' model, expected '{kind}'",
+            path.display(),
+            manifest.kind
+        )));
+    }
     let model_bytes = std::fs::read(path)
         .map_err(|e| DetectError::Model(format!("reading {}: {e}", path.display())))?;
     let sha = hex::encode(Sha256::digest(&model_bytes));
@@ -276,13 +293,16 @@ pub fn load_verified(path: &Path) -> Result<(RfDetrSeg, anon_model::ModelRef), D
             manifest.sha256
         )));
     }
-    let model = RfDetrSeg::load(path, manifest.person_class)?;
-    Ok((
-        model,
-        anon_model::ModelRef {
-            id: manifest.id,
-            sha256: sha,
-            license: manifest.license,
-        },
-    ))
+    let r = anon_model::ModelRef {
+        id: manifest.id.clone(),
+        sha256: sha,
+        license: manifest.license.clone(),
+    };
+    Ok((manifest, r))
+}
+
+/// Load a person segmentation model only if its sha256 matches its manifest.
+pub fn load_verified(path: &Path) -> Result<(RfDetrSeg, anon_model::ModelRef), DetectError> {
+    let (manifest, r) = verify_manifest(path, "person-seg")?;
+    Ok((RfDetrSeg::load(path, manifest.person_class)?, r))
 }

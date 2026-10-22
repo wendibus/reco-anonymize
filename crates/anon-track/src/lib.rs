@@ -45,6 +45,8 @@ pub struct TrackerConfig {
     /// Ellipse growth per pixel/frame of speed.
     pub motion_pad: f32,
     pub head_expand: f32,
+    /// Kind written to the produced tracks.
+    pub kind: RegionKind,
 }
 
 impl Default for TrackerConfig {
@@ -55,6 +57,7 @@ impl Default for TrackerConfig {
             extend_frames: 3,
             motion_pad: 1.0,
             head_expand: 1.5,
+            kind: RegionKind::Head,
         }
     }
 }
@@ -381,7 +384,7 @@ fn build_track(obs: &[(u64, Det)], cfg: &TrackerConfig, last_frame: u64) -> Trac
     }
     Track {
         id: 0,
-        kind: RegionKind::Head,
+        kind: cfg.kind,
         origin: Origin::Auto {
             passes: pass_names(passes),
         },

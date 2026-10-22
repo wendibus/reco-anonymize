@@ -86,6 +86,7 @@ fn opts() -> AnalyzeOptions {
         },
         fresh: false,
         resume: false,
+        text: None,
     }
 }
 
@@ -375,5 +376,114 @@ fn interrupted_analysis_resumes_from_checkpoint() {
     assert!(!proj.path("checkpoint.json").exists());
     let fr = proj.load_frames().unwrap();
     assert!(fr.records.iter().all(|r| r.persons == 1));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Text = bright pixels (stand-in for PP-OCR det).
+struct Bright;
+
+impl anon_detect::text::TextMapModel for Bright {
+    fn prob_map(&mut self, img: &RgbImage) -> Result<Vec<f32>, DetectError> {
+        Ok(img
+            .data
+            .chunks_exact(3)
+            .map(|p| {
+                if p.iter().all(|&c| c > 200) {
+                    0.9
+                } else {
+                    0.05
+                }
+            })
+            .collect())
+    }
+}
+
+#[test]
+fn jersey_numbers_are_masked_when_enabled() {
+    if !have("ffmpeg") || !have("ffprobe") {
+        return;
+    }
+    let dir: PathBuf = std::env::temp_dir().join(format!("anon-text-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("numbers.mp4");
+    // red player with a white 10x14 "number" on the shirt, walking right
+    let st = Command::new("ffmpeg")
+        .args(["-v", "error", "-y"])
+        .args([
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=0x606060:size=320x240:rate=25:duration=1",
+        ])
+        .args([
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:size=24x90:rate=25:duration=1",
+        ])
+        .args([
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=white:size=10x14:rate=25:duration=1",
+        ])
+        .args([
+            "-filter_complex",
+            "[0:v][1:v]overlay=x='40+t*60':y=70[a];[a][2:v]overlay=x='47+t*60':y=110",
+        ])
+        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
+        .arg(&src)
+        .status()
+        .unwrap();
+    assert!(st.success());
+    let proj = ProjectDir::for_source(&src);
+
+    // enabled without a text model -> refused
+    let mut o = opts();
+    o.settings.mask_jersey_numbers = true;
+    assert!(matches!(
+        analyze(&src, &proj, Box::new(RedFinder), o, |_, _| {}),
+        Err(PipelineError::Refused(_))
+    ));
+
+    let mut o = opts();
+    o.settings.mask_jersey_numbers = true;
+    o.text = Some((
+        Box::new(anon_detect::text::DbTextDetector { model: Bright }),
+        ModelRef {
+            id: "bright".into(),
+            sha256: "0".into(),
+            license: "test".into(),
+        },
+    ));
+    let s = analyze(&src, &proj, Box::new(RedFinder), o, |_, _| {}).unwrap();
+    assert_eq!(s.tracks, 1);
+    assert_eq!(s.text_tracks, 1, "one number track");
+    assert_eq!(proj.load_project().unwrap().settings.models.len(), 2);
+    approve(&proj, None, false).unwrap();
+    let out = dir.join("out.mp4");
+    let ro = RenderOptions {
+        encode: EncodeSettings {
+            codec: Codec::H264,
+            encoder: Some("libx264".into()),
+            quality: 80,
+        },
+        preview: false,
+    };
+    render(&proj, &out, &ro).unwrap();
+    for frame in [0u32, 12, 24] {
+        let t = frame as f32 / 25.0;
+        let nx = (47.0 + t * 60.0) as u32 + 5;
+        let number = rgb_at(&out, nx, 117, frame);
+        assert!(
+            number.iter().all(|&c| c < 40),
+            "frame {frame}: number visible {number:?}"
+        );
+        let legs = rgb_at(&out, nx, 150, frame);
+        assert!(
+            legs[0] > 170 && legs[1] < 90,
+            "frame {frame}: body hidden {legs:?}"
+        );
+    }
     std::fs::remove_dir_all(&dir).ok();
 }

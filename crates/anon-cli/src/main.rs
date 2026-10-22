@@ -59,6 +59,10 @@ enum Cmd {
         dilation: u32,
         #[arg(long, default_value_t = 30)]
         gap: u32,
+        /// Also mask jersey numbers / text on players with this PP-OCR det
+        /// model (manifest kind "text-db", see scripts/fetch_ppocr.py).
+        #[arg(long)]
+        text_model: Option<PathBuf>,
     },
     /// Show analysis state, flagged frames and approval validity.
     Status {
@@ -218,6 +222,7 @@ fn main() -> Result<()> {
             head_expand,
             dilation,
             gap,
+            text_model,
         } => {
             let dir = project.map_or_else(|| ProjectDir::for_source(&video), ProjectDir::open);
             let (model, model_ref) = load_model(&model)?;
@@ -233,6 +238,7 @@ fn main() -> Result<()> {
                 head_expand,
                 gap_fill_frames: gap,
                 dilation_frames: dilation,
+                mask_jersey_numbers: text_model.is_some(),
                 ..AnalysisSettings::default()
             };
             eprintln!("analyzing {} -> {}", video.display(), dir.root.display());
@@ -245,13 +251,26 @@ fn main() -> Result<()> {
                     model_ref,
                     fresh,
                     resume,
+                    text: match &text_model {
+                        Some(p) => {
+                            let (d, r) = anon_detect::ppocr::load_verified(p)?;
+                            Some((Box::new(d) as Box<dyn anon_detect::text::TextDetector>, r))
+                        }
+                        None => None,
+                    },
                 },
                 progress_line,
             )?;
             eprintln!();
             println!(
-                "frames {} (resumed at {})  tracks {}  max persons/frame {}  flagged {}  errors {}",
-                s.frames, s.resumed_from, s.tracks, s.max_persons, s.flagged, s.errors
+                "frames {} (resumed at {})  head tracks {}  text tracks {}  max persons/frame {}  flagged {}  errors {}",
+                s.frames,
+                s.resumed_from,
+                s.tracks,
+                s.text_tracks,
+                s.max_persons,
+                s.flagged,
+                s.errors
             );
             println!(
                 "next: reco-anon render {} --preview, check it, then approve",

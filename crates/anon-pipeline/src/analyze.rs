@@ -12,11 +12,12 @@ use std::path::Path;
 use anon_detect::PersonSegmenter;
 use anon_detect::analyzer::{Analyzer, AnalyzerConfig};
 use anon_detect::image::unrotate_point;
+use anon_detect::text::TextDetector;
 use anon_io::{FrameReader, RgbConverter};
 use anon_model::frames::flag;
 use anon_model::{
     AnalysisSettings, BBox, Fingerprint, FrameRecord, FrameStatus, FrameTable, ModelRef, Project,
-    ProjectDir, ReviewState, SCHEMA_VERSION, SourceInfo, TrackSet,
+    ProjectDir, RegionKind, ReviewState, SCHEMA_VERSION, SourceInfo, TrackSet,
 };
 use anon_track::{Det, FrameDets, TrackerConfig, pass_bits, track_offline};
 use serde::{Deserialize, Serialize};
@@ -34,6 +35,9 @@ pub struct AnalyzeOptions {
     pub fresh: bool,
     /// Continue an interrupted analysis from its last checkpoint.
     pub resume: bool,
+    /// Text detector for jersey numbers; required when
+    /// `settings.mask_jersey_numbers` is set.
+    pub text: Option<(Box<dyn TextDetector>, ModelRef)>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -43,6 +47,7 @@ pub struct AnalyzeSummary {
     pub errors: u64,
     pub flagged: u64,
     pub tracks: usize,
+    pub text_tracks: usize,
     pub max_persons: u16,
 }
 
@@ -55,6 +60,13 @@ struct DetLine {
     score: f32,
     arms_up: bool,
     passes: Vec<String>,
+    /// "head" or "text".
+    #[serde(default = "head_kind")]
+    kind: String,
+}
+
+fn head_kind() -> String {
+    "head".into()
 }
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -92,6 +104,7 @@ fn det_of(line: &DetLine) -> Det {
 struct Resume {
     frames: FrameTable,
     dets: Vec<FrameDets>,
+    text: Vec<FrameDets>,
 }
 
 /// Load a matching checkpoint and trim the logs to it.
@@ -116,6 +129,7 @@ fn load_resume(
     }
     frames.records.truncate(cp.frames_done as usize);
     let mut dets = vec![FrameDets::default(); cp.frames_done as usize];
+    let mut text = vec![FrameDets::default(); cp.frames_done as usize];
     let log_path = dir.path("detections.jsonl");
     let mut kept = Vec::new();
     for line in BufReader::new(std::fs::File::open(&log_path)?).lines() {
@@ -125,7 +139,12 @@ fn load_resume(
             continue;
         };
         if d.frame < cp.frames_done {
-            dets[d.frame as usize].dets.push(det_of(&d));
+            let target = if d.kind == "text" {
+                &mut text
+            } else {
+                &mut dets
+            };
+            target[d.frame as usize].dets.push(det_of(&d));
             kept.push(line);
         }
     }
@@ -134,7 +153,7 @@ fn load_resume(
         writeln!(w, "{l}")?;
     }
     w.flush()?;
-    Ok(Some(Resume { frames, dets }))
+    Ok(Some(Resume { frames, dets, text }))
 }
 
 /// Analyse `src` into the project directory `dir`.
@@ -164,6 +183,18 @@ pub fn analyze(
 
     let mut settings = opts.settings;
     settings.models = vec![opts.model_ref];
+    let mut text_detector = match (settings.mask_jersey_numbers, opts.text) {
+        (true, Some((d, r))) => {
+            settings.models.push(r);
+            Some(d)
+        }
+        (true, None) => {
+            return Err(PipelineError::Refused(
+                "jersey-number masking needs a text model".into(),
+            ));
+        }
+        (false, _) => None,
+    };
     let sh = settings_hash(&settings);
     let resume = if opts.resume {
         load_resume(dir, &fingerprint, &sh)?
@@ -171,9 +202,9 @@ pub fn analyze(
         None
     };
     let resumed_from = resume.as_ref().map_or(0, |r| r.frames.records.len() as u64);
-    let (mut frames, mut all_dets) = match resume {
-        Some(r) => (r.frames, r.dets),
-        None => (FrameTable::default(), Vec::new()),
+    let (mut frames, mut all_dets, mut all_text) = match resume {
+        Some(r) => (r.frames, r.dets, r.text),
+        None => (FrameTable::default(), Vec::new(), Vec::new()),
     };
     let mut det_log = if resumed_from > 0 {
         BufWriter::new(
@@ -220,6 +251,7 @@ pub fn analyze(
                 rec.flags |= flag::ERROR;
                 frames.records.push(rec);
                 all_dets.push(FrameDets::default());
+                all_text.push(FrameDets::default());
                 index += 1;
                 break;
             }
@@ -242,16 +274,40 @@ pub fn analyze(
 
         let mut rec = FrameRecord::missing(pts);
         let mut fdets = FrameDets::default();
+        let mut tdets = FrameDets::default();
         let result = rgb
             .convert(&frame)
             .map_err(|e| e.to_string())
             .and_then(|img| {
-                analyzer
-                    .analyze(&img.rotate_cw(rot))
-                    .map_err(|e| e.to_string())
+                let shown = img.rotate_cw(rot);
+                let det = analyzer.analyze(&shown).map_err(|e| e.to_string())?;
+                let text = match text_detector.as_mut() {
+                    Some(t) => {
+                        let persons: Vec<BBox> = det.heads.iter().map(|h| h.person).collect();
+                        t.detect(&shown, &persons).map_err(|e| e.to_string())?
+                    }
+                    None => Vec::new(),
+                };
+                Ok((det, text))
             });
         match result {
-            Ok(det) => {
+            Ok((det, text)) => {
+                for tb in &text {
+                    let b = unrotate_box(&tb.bbox, rot, dw, dh);
+                    let line = DetLine {
+                        frame: index,
+                        pts,
+                        person: [b.x0, b.y0, b.x1, b.y1],
+                        head: [b.x0, b.y0, b.x1, b.y1],
+                        score: tb.score,
+                        arms_up: false,
+                        passes: vec!["text".into()],
+                        kind: "text".into(),
+                    };
+                    serde_json::to_writer(&mut det_log, &line).map_err(std::io::Error::other)?;
+                    det_log.write_all(b"\n")?;
+                    tdets.dets.push(det_of(&line));
+                }
                 let persons = det.heads.len().min(u16::MAX as usize) as u16;
                 rec.status = FrameStatus::Analyzed;
                 rec.persons = persons;
@@ -281,6 +337,7 @@ pub fn analyze(
                         score: hd.score,
                         arms_up: hd.arms_up,
                         passes: hd.passes.iter().map(|s| (*s).to_string()).collect(),
+                        kind: head_kind(),
                     };
                     serde_json::to_writer(&mut det_log, &line).map_err(std::io::Error::other)?;
                     det_log.write_all(b"\n")?;
@@ -295,6 +352,7 @@ pub fn analyze(
         }
         frames.records.push(rec);
         all_dets.push(fdets);
+        all_text.push(tdets);
         index += 1;
         progress(index, expected);
 
@@ -325,7 +383,19 @@ pub fn analyze(
         head_expand: settings.head_expand,
         ..TrackerConfig::default()
     };
-    let auto = track_offline(&all_dets, &tcfg);
+    let mut auto = track_offline(&all_dets, &tcfg);
+    let text_tracks = if settings.mask_jersey_numbers {
+        track_offline(
+            &all_text,
+            &TrackerConfig {
+                kind: RegionKind::Text,
+                head_expand: 1.2,
+                ..tcfg.clone()
+            },
+        )
+    } else {
+        Vec::new()
+    };
 
     // Review flags that need the whole track picture.
     let last = index.saturating_sub(1);
@@ -346,6 +416,8 @@ pub fn analyze(
         }
     }
     let auto_count = auto.len();
+    let text_count = text_tracks.len();
+    auto.extend(text_tracks);
     tracks.replace_auto(auto);
 
     let project = Project {
@@ -378,6 +450,7 @@ pub fn analyze(
         errors: frames.count_status(FrameStatus::Error) as u64,
         flagged: frames.flagged().count() as u64,
         tracks: auto_count,
+        text_tracks: text_count,
         max_persons,
     })
 }

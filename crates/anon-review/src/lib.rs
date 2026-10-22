@@ -102,6 +102,8 @@ pub struct ReviewSession {
     pub mode: ViewMode,
     pub dirty: bool,
     reviewed: BTreeSet<u64>,
+    /// Polygon being drawn (source coordinates).
+    pub zone_draft: Vec<[f32; 2]>,
     seeker: FrameSeeker,
     rgb: RgbConverter,
     cache: Option<(u64, anon_detect::RgbImage)>,
@@ -130,6 +132,7 @@ impl ReviewSession {
             selected: None,
             mode: ViewMode::Outline,
             dirty: false,
+            zone_draft: Vec::new(),
             reviewed,
             seeker,
             rgb: RgbConverter::default(),
@@ -321,6 +324,24 @@ impl ReviewSession {
                 }
             }
         }
+        if !self.zone_draft.is_empty() {
+            let c = [255, 80, 255, 255];
+            for p in &self.zone_draft {
+                out.rect(p[0] - 4.0, p[1] - 4.0, p[0] + 4.0, p[1] + 4.0, thick, c);
+            }
+            if self.zone_draft.len() >= 2 {
+                let mut pts = self.zone_draft.clone();
+                if pts.len() == 2 {
+                    pts.push(pts[1]);
+                }
+                out.outline(
+                    &Shape::Polygon { points: pts },
+                    thick,
+                    c,
+                    self.zone_draft.len() < 3,
+                );
+            }
+        }
         Ok(out)
     }
 
@@ -417,6 +438,65 @@ impl ReviewSession {
             if self.selected == Some(id) {
                 self.selected = None;
             }
+        }
+        self.edited();
+        Ok(())
+    }
+
+    // ---- zones -----------------------------------------------------------
+
+    pub fn zone_add_point(&mut self, x: f32, y: f32) {
+        let (w, h) = self.size();
+        self.zone_draft
+            .push([x.clamp(0.0, w as f32), y.clamp(0.0, h as f32)]);
+    }
+
+    pub fn zone_undo_point(&mut self) {
+        self.zone_draft.pop();
+    }
+
+    pub fn zone_cancel(&mut self) {
+        self.zone_draft.clear();
+    }
+
+    /// Turn the draft into a static zone. `range` is inclusive, `None` =
+    /// whole clip.
+    pub fn zone_finish(
+        &mut self,
+        label: &str,
+        range: Option<(u64, u64)>,
+    ) -> Result<u32, ReviewError> {
+        if self.zone_draft.len() < 3 {
+            return Err(ReviewError::Refused(
+                "a zone needs at least 3 points".into(),
+            ));
+        }
+        if let Some((a, b)) = range
+            && a > b
+        {
+            return Err(ReviewError::Refused("zone range: start after end".into()));
+        }
+        let id = self.project.zones.iter().map(|z| z.id).max().unwrap_or(0) + 1;
+        let label = if label.trim().is_empty() {
+            format!("zone {id}")
+        } else {
+            label.trim().to_string()
+        };
+        self.project.zones.push(anon_model::Zone {
+            id,
+            label,
+            polygon: std::mem::take(&mut self.zone_draft),
+            range,
+        });
+        self.edited();
+        Ok(id)
+    }
+
+    pub fn zone_remove(&mut self, id: u32) -> Result<(), ReviewError> {
+        let n = self.project.zones.len();
+        self.project.zones.retain(|z| z.id != id);
+        if self.project.zones.len() == n {
+            return Err(ReviewError::Refused(format!("no zone {id}")));
         }
         self.edited();
         Ok(())

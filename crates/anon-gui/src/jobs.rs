@@ -11,6 +11,8 @@ pub enum Job {
     Analyze {
         src: PathBuf,
         model: PathBuf,
+        /// Mask jersey numbers with this text model.
+        text: Option<PathBuf>,
         resume: bool,
     },
     Preview {
@@ -62,6 +64,18 @@ pub fn last_model() -> Option<PathBuf> {
     let p = std::fs::read_to_string(config_file("last-model")?).ok()?;
     let p = PathBuf::from(p.trim());
     p.exists().then_some(p)
+}
+
+pub fn last_text_model() -> Option<PathBuf> {
+    let p = std::fs::read_to_string(config_file("last-text-model")?).ok()?;
+    let p = PathBuf::from(p.trim());
+    p.exists().then_some(p)
+}
+
+pub fn remember_text_model(p: &Path) {
+    if let Some(f) = config_file("last-text-model") {
+        let _ = std::fs::write(f, p.display().to_string());
+    }
 }
 
 pub fn remember_model(p: &Path) {
@@ -135,14 +149,27 @@ fn audit(
 
 fn run(job: Job, tx: &Sender<JobMsg>) -> Result<(String, Option<PathBuf>), String> {
     match job {
-        Job::Analyze { src, model, resume } => {
+        Job::Analyze {
+            src,
+            model,
+            text,
+            resume,
+        } => {
             let (m, model_ref) =
                 anon_detect::rfdetr::load_verified(&model).map_err(|e| e.to_string())?;
+            let text = match &text {
+                Some(p) => {
+                    let (d, r) = anon_detect::ppocr::load_verified(p).map_err(|e| e.to_string())?;
+                    Some((Box::new(d) as Box<dyn anon_detect::text::TextDetector>, r))
+                }
+                None => None,
+            };
             let dir = ProjectDir::for_source(&src);
-            let settings = dir
+            let mut settings = dir
                 .load_project()
                 .map(|p| p.settings)
                 .unwrap_or_else(|_| AnalysisSettings::default());
+            settings.mask_jersey_numbers = text.is_some();
             let s = anon_pipeline::analyze(
                 &src,
                 &dir,
@@ -152,14 +179,15 @@ fn run(job: Job, tx: &Sender<JobMsg>) -> Result<(String, Option<PathBuf>), Strin
                     model_ref,
                     fresh: false,
                     resume,
+                    text,
                 },
                 frames_progress(tx, "analyze"),
             )
             .map_err(|e| e.to_string())?;
             Ok((
                 format!(
-                    "analysis done: {} frames, {} tracks, {} flagged, {} errors",
-                    s.frames, s.tracks, s.flagged, s.errors
+                    "analysis done: {} frames, {} head tracks, {} text tracks, {} flagged, {} errors",
+                    s.frames, s.tracks, s.text_tracks, s.flagged, s.errors
                 ),
                 Some(dir.root),
             ))

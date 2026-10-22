@@ -3,6 +3,11 @@
 
 import { Button, LineEdit, Slider, CheckBox, ProgressIndicator, ScrollView } from "std-widgets.slint";
 
+export struct ZoneInfo {
+    id: int,
+    label: string,
+}
+
 export struct TrackInfo {
     id: int,
     label: string,
@@ -78,6 +83,12 @@ export component AppWindow inherits Window {
     in property <string> message;
     in property <bool> message-error;
     in property <bool> dirty;
+    in property <string> text-model-path;
+    in-out property <bool> jersey;
+    in-out property <bool> zone-mode;
+    in property <int> zone-points;
+    in property <[ZoneInfo]> zones;
+    in property <int> last-frame;
 
     // ---- callbacks to Rust -------------------------------------------
     callback open-project();
@@ -99,6 +110,12 @@ export component AppWindow inherits Window {
     callback run-preview();
     callback run-render();
     callback run-audit();
+    callback choose-text-model();
+    callback zone-point(length, length, length, length);
+    callback zone-undo();
+    callback zone-cancel();
+    callback zone-finish(string, bool, string, string);
+    callback zone-remove(int);
 
     forward-focus: keys;
     keys := FocusScope {
@@ -124,7 +141,11 @@ export component AppWindow inherits Window {
                 return accept;
             }
             if (event.text == Key.Escape) {
-                root.deselect();
+                if (root.zone-mode) {
+                    root.zone-cancel();
+                } else {
+                    root.deselect();
+                }
                 return accept;
             }
             reject
@@ -151,7 +172,16 @@ export component AppWindow inherits Window {
                     color: #8a8a8a;
                     vertical-alignment: center;
                     overflow: elide;
-                    max-width: 320px;
+                    max-width: 260px;
+                }
+                Button {
+                    text: "Text model…";
+                    clicked => { root.choose-text-model(); }
+                }
+                CheckBox {
+                    text: "Jersey numbers";
+                    enabled: root.text-model-path != "";
+                    checked <=> root.jersey;
                 }
                 Rectangle { horizontal-stretch: 1; }
                 Button {
@@ -205,7 +235,7 @@ export component AppWindow inherits Window {
                     }
 
                     band := Rectangle {
-                        visible: touch.pressed && (abs(touch.mouse-x - touch.pressed-x) > 4px || abs(touch.mouse-y - touch.pressed-y) > 4px);
+                        visible: !root.zone-mode && touch.pressed && (abs(touch.mouse-x - touch.pressed-x) > 4px || abs(touch.mouse-y - touch.pressed-y) > 4px);
                         x: min(touch.pressed-x, touch.mouse-x);
                         y: min(touch.pressed-y, touch.mouse-y);
                         width: abs(touch.mouse-x - touch.pressed-x);
@@ -219,7 +249,10 @@ export component AppWindow inherits Window {
                         enabled: root.has-project;
                         mouse-cursor: crosshair;
                         pointer-event(event) => {
-                            if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left) {
+                            if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left && root.zone-mode) {
+                                root.zone-point(self.mouse-x, self.mouse-y, self.width, self.height);
+                                keys.focus();
+                            } else if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left) {
                                 if (abs(self.mouse-x - self.pressed-x) > 4px || abs(self.mouse-y - self.pressed-y) > 4px) {
                                     root.add-box(self.pressed-x, self.pressed-y, self.mouse-x, self.mouse-y, self.width, self.height);
                                 } else {
@@ -365,6 +398,82 @@ export component AppWindow inherits Window {
                                 color: #7a7a7a;
                                 font-size: 11px;
                                 wrap: word-wrap;
+                            }
+                        }
+
+                        Card {
+                            title: "Zones (always masked)";
+                            for z in root.zones: HorizontalLayout {
+                                spacing: 6px;
+                                Text {
+                                    text: z.label;
+                                    color: #d0d0d0;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                    overflow: elide;
+                                }
+                                Button {
+                                    text: "Remove";
+                                    clicked => { root.zone-remove(z.id); keys.focus(); }
+                                }
+                            }
+                            if !root.zone-mode: Button {
+                                text: "Draw zone (stands, scoreboard…)";
+                                enabled: root.has-project;
+                                clicked => { root.zone-mode = true; keys.focus(); }
+                            }
+                            if root.zone-mode: VerticalLayout {
+                                spacing: 6px;
+                                Text {
+                                    text: "Click the corners on the picture (" + root.zone-points + " so far).";
+                                    color: #e6a0e6;
+                                    wrap: word-wrap;
+                                }
+                                zlabel := LineEdit {
+                                    placeholder-text: "Label, e.g. stands";
+                                }
+                                limited := CheckBox {
+                                    text: "Only frames";
+                                }
+                                if limited.checked: HorizontalLayout {
+                                    spacing: 6px;
+                                    zfrom := LineEdit {
+                                        text: root.current-frame;
+                                        input-type: number;
+                                    }
+                                    Text {
+                                        text: "to";
+                                        color: #a8a8a8;
+                                        vertical-alignment: center;
+                                    }
+                                    zto := LineEdit {
+                                        text: root.last-frame;
+                                        input-type: number;
+                                    }
+                                    Button {
+                                        text: "Finish";
+                                        enabled: root.zone-points >= 3;
+                                        clicked => { root.zone-finish(zlabel.text, true, zfrom.text, zto.text); keys.focus(); }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    if !limited.checked: Button {
+                                        text: "Finish";
+                                        primary: true;
+                                        enabled: root.zone-points >= 3;
+                                        clicked => { root.zone-finish(zlabel.text, false, "", ""); keys.focus(); }
+                                    }
+                                    Button {
+                                        text: "Undo point";
+                                        enabled: root.zone-points > 0;
+                                        clicked => { root.zone-undo(); keys.focus(); }
+                                    }
+                                    Button {
+                                        text: "Cancel";
+                                        clicked => { root.zone-cancel(); keys.focus(); }
+                                    }
+                                }
                             }
                         }
 

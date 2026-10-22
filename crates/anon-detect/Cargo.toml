@@ -34,3 +34,5 @@ load-dynamic = ["ort", "reco-detect/load-dynamic"]
 
 [lints]
 workspace = true
+
+[dev-dependencies]

@@ -1,6 +1,6 @@
 # reco-anonymize — Specification (Step 2: crates, APIs, data model)
 
-Status: v0.4, M1 + M2 implemented (see §12–14) · License: AGPL-3.0-only (links reco crates) · Target: macOS M4 Pro first, Linux/Windows via reco's backends
+Status: v0.6, M1–M4 implemented (see §12–16) · License: AGPL-3.0-only (links reco crates) · Target: macOS M4 Pro first, Linux/Windows via reco's backends
 
 ## 1. Goals and non-goals
 
@@ -301,3 +301,24 @@ All UI behaviour lives here and is tested without a window:
 - Keyboard: ←/→ (Shift ×10), `n`/`p` for flagged frames, `o` for the view, `Esc` to deselect.
 - Jobs on worker threads: Analyze, Preview (opens the system player), Render (save dialog, then an automatic audit), Audit.
 - The model path is remembered in `~/.reco-anonymize/last-model`.
+
+
+## 16. M4 status (implemented)
+
+**Zones in the review app**
+- Click the corners of a polygon on the picture, give it a label and optionally an inclusive frame range ("Only frames").
+- Zones can be removed again. Adding or removing a zone voids the approval.
+- In the export view zones are painted exactly as in the render.
+
+**Jersey numbers (opt-in)**
+- `TextDetector` trait in `anon-detect`. The `DbTextDetector` runs a DB text-probability model on every person crop:
+  - the crop is scaled to a long side of 320 and padded to multiples of 32;
+  - the map is thresholded at 0.3 and split into connected components, components of fewer than 6 cells are dropped;
+  - each box is expanded by area × 1.5 / perimeter (DB unclip) and clipped to the person box.
+- ORT backend `ppocr::PpOcrDet`: PaddleOCR DB, BGR input, ImageNet normalisation. The PP-OCR det weights are Apache-2.0 per the model card; `scripts/fetch_ppocr.py` downloads them and writes the manifest.
+- Model manifests now carry a `kind` (`person-seg` or `text-db`). Loading a model under the wrong kind is refused.
+- Text detections go through the same bidirectional tracker as heads (`RegionKind::Text`, ellipse ×1.2), with gap bridging and extrapolation.
+- Enabling the option without a text model is refused. The text model is recorded in `settings.models`, so it is part of the resume settings hash.
+- Not covered: the audit checks heads only. Text coverage relies on the review.
+
+**Tests:** connected components and unclip, number on a shirt mapped to source coordinates, an ORT contract test with a synthetic DB model, and an end-to-end test (number on a moving player masked, body visible, enabling without a model refused). Session test for zone add, frame range, export view and removal.

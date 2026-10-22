@@ -67,6 +67,7 @@ def main():
         "id": f"rfdetr-{name}",
         "sha256": sha,
         "license": "Apache-2.0 (code and COCO weights, roboflow/rf-detr)",
+        "kind": "person-seg",
         # RF-DETR COCO checkpoints index logits by COCO category id: person = 1
         "person_class": 1,
         "source": f"rfdetr.{name} via model.export()",

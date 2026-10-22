@@ -29,6 +29,7 @@ slint::include_modules!();
 pub struct App {
     session: Option<ReviewSession>,
     model: Option<PathBuf>,
+    text_model: Option<PathBuf>,
     jobs: mpsc::Sender<JobMsg>,
     job_running: bool,
     timeline_dirty: bool,
@@ -85,6 +86,13 @@ fn message(ui: &AppWindow, text: impl Into<SharedString>, error: bool) {
 
 /// Push the whole session state into the UI.
 fn refresh(ui: &AppWindow, app: &mut App) {
+    ui.set_text_model_path(
+        app.text_model
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default()
+            .into(),
+    );
     ui.set_job_running(app.job_running);
     ui.set_model_path(
         app.model
@@ -108,6 +116,22 @@ fn refresh(ui: &AppWindow, app: &mut App) {
             .into(),
     );
     ui.set_frame_count(s.frame_count().max(1) as i32);
+    ui.set_last_frame(s.frame_count().saturating_sub(1) as i32);
+    ui.set_zone_points(s.zone_draft.len() as i32);
+    let zones: Vec<ZoneInfo> = s
+        .project
+        .zones
+        .iter()
+        .map(|z| ZoneInfo {
+            id: z.id as i32,
+            label: match z.range {
+                Some((a, b)) => format!("{} · frames {a}–{b}", z.label),
+                None => format!("{} · whole clip", z.label),
+            }
+            .into(),
+        })
+        .collect();
+    ui.set_zones(ModelRc::new(VecModel::from(zones)));
     ui.set_current_frame(s.current as i32);
     ui.set_opaque_mode(s.mode == ViewMode::Opaque);
     ui.set_dirty(s.dirty);
@@ -335,6 +359,7 @@ fn main() -> anyhow::Result<()> {
     let app: Shared = Rc::new(RefCell::new(App {
         session: None,
         model: jobs::last_model(),
+        text_model: jobs::last_text_model(),
         jobs: tx,
         job_running: false,
         timeline_dirty: true,
@@ -480,6 +505,65 @@ fn main() -> anyhow::Result<()> {
         refresh(&ui, &mut app);
     });
 
+    // ---- zones ---------------------------------------------------------------
+    let (w, a) = (ui.as_weak(), app.clone());
+    ui.on_zone_point(move |x, y, vw, vh| {
+        let ui = w.unwrap();
+        let mut app = a.borrow_mut();
+        if let Some(s) = app.session.as_mut() {
+            let (sx, sy) = to_source(s, x, y, vw, vh);
+            s.zone_add_point(sx, sy);
+        }
+        refresh(&ui, &mut app);
+    });
+    let (w, a) = (ui.as_weak(), app.clone());
+    ui.on_zone_undo(move || {
+        let ui = w.unwrap();
+        let mut app = a.borrow_mut();
+        if let Some(s) = app.session.as_mut() {
+            s.zone_undo_point();
+        }
+        refresh(&ui, &mut app);
+    });
+    let (w, a) = (ui.as_weak(), app.clone());
+    ui.on_zone_cancel(move || {
+        let ui = w.unwrap();
+        ui.set_zone_mode(false);
+        let mut app = a.borrow_mut();
+        if let Some(s) = app.session.as_mut() {
+            s.zone_cancel();
+        }
+        refresh(&ui, &mut app);
+    });
+    let (w, a) = (ui.as_weak(), app.clone());
+    ui.on_zone_finish(move |label, limited, from, to| {
+        let ui = w.unwrap();
+        let range = if limited {
+            match (from.trim().parse::<u64>(), to.trim().parse::<u64>()) {
+                (Ok(f), Ok(t)) => Some((f, t)),
+                _ => {
+                    message(&ui, "frame range: enter two frame numbers", true);
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        edit(&ui, &a, |s| s.zone_finish(&label, range).map(|_| ()));
+        if a.borrow()
+            .session
+            .as_ref()
+            .is_some_and(|s| s.zone_draft.is_empty())
+        {
+            ui.set_zone_mode(false);
+        }
+    });
+    let (w, a) = (ui.as_weak(), app.clone());
+    ui.on_zone_remove(move |id| {
+        let ui = w.unwrap();
+        edit(&ui, &a, |s| s.zone_remove(id as u32));
+    });
+
     // ---- files and jobs ----------------------------------------------------
     let (w, a) = (ui.as_weak(), app.clone());
     ui.on_open_project(move || {
@@ -514,14 +598,42 @@ fn main() -> anyhow::Result<()> {
         }
     });
     let (w, a) = (ui.as_weak(), app.clone());
+    ui.on_choose_text_model(move || {
+        let ui = w.unwrap();
+        if let Some(p) = rfd::FileDialog::new()
+            .set_title("PP-OCR det ONNX model (with .onnx.json manifest)")
+            .add_filter("ONNX", &["onnx"])
+            .pick_file()
+        {
+            jobs::remember_text_model(&p);
+            let mut app = a.borrow_mut();
+            app.text_model = Some(p);
+            refresh(&ui, &mut app);
+        }
+    });
+    let (w, a) = (ui.as_weak(), app.clone());
     ui.on_run_analyze(move || {
         let ui = w.unwrap();
-        let (src, model, resume) = {
+        let (src, model, text) = {
             let app = a.borrow();
-            (source_path(&app), app.model.clone(), false)
+            let text = if ui.get_jersey() {
+                app.text_model.clone()
+            } else {
+                None
+            };
+            (source_path(&app), app.model.clone(), text)
         };
         if let (Some(src), Some(model)) = (src, model) {
-            start_job(&ui, &a, Job::Analyze { src, model, resume });
+            start_job(
+                &ui,
+                &a,
+                Job::Analyze {
+                    src,
+                    model,
+                    text,
+                    resume: false,
+                },
+            );
         }
     });
     let (w, a) = (ui.as_weak(), app.clone());

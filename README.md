@@ -55,8 +55,21 @@ left). Outline view shows every mask; Export view shows exactly what the export 
 - Click a mask to select it. Suppress false positives (a reason is required), restore them.
 - Drag on the picture to add a head the detector missed. With a manual track selected, a box on
   another frame adds a keyframe; frames in between are interpolated.
+- Draw zones (stands, scoreboard): click the corners, label, optional frame range. Zones are
+  always masked.
 - Approve unlocks only after every flagged frame has been shown. Render asks for the output path
   and audits the export right away.
+
+## Jersey numbers (optional)
+
+```sh
+python scripts/fetch_ppocr.py --version v5 --out models/ppocr-det-v5.onnx
+reco-anon analyze game.mp4 --model models/rfdetr-seg-medium.onnx --text-model models/ppocr-det-v5.onnx
+```
+
+A PaddleOCR DB text detector (Apache-2.0) runs inside every person box; text regions are
+tracked like heads and masked. In the review app: *Text model…* and the *Jersey numbers* box.
+Names on the scoreboard are handled with a zone.
 
 ## Model
 

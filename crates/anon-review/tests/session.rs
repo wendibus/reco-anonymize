@@ -89,6 +89,7 @@ fn review_workflow() {
             },
             fresh: false,
             resume: false,
+            text: None,
         },
         |_, _| {},
     )
@@ -163,6 +164,32 @@ fn review_workflow() {
     s.delete_manual_keyframe(m).unwrap();
     assert!(!s.tracks.tracks.iter().any(|t| t.id == m), "track gone");
     assert!(s.delete_manual_keyframe(auto_id).is_err());
+
+    // zones: draw, finish (range), paints in export view, remove
+    s.goto(4);
+    s.zone_add_point(250.0, 10.0);
+    s.zone_add_point(310.0, 10.0);
+    assert!(s.zone_finish("too few", None).is_err());
+    s.zone_add_point(310.0, 40.0);
+    s.zone_add_point(250.0, 40.0);
+    assert!(s.zone_finish("board", Some((5, 3))).is_err());
+    let z = s.zone_finish("scoreboard", Some((3, 6))).unwrap();
+    assert!(s.zone_draft.is_empty());
+    s.mode = ViewMode::Opaque;
+    let img = s.render_current().unwrap();
+    assert_eq!(&img.px(280, 25)[..3], &[0, 0, 0], "zone painted in range");
+    s.goto(8);
+    let img = s.render_current().unwrap();
+    assert!(img.px(280, 25)[0] > 60, "outside the zone's frame range");
+    assert!(
+        s.project
+            .zones
+            .iter()
+            .any(|zz| zz.id == z && zz.label == "scoreboard")
+    );
+    s.zone_remove(z).unwrap();
+    assert!(s.zone_remove(z).is_err());
+    s.mode = ViewMode::Outline;
 
     // visit every flagged frame, then approval works and persists
     while let Some(f) = s.next_flag(true, true) {

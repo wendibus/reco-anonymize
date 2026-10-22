@@ -10,7 +10,10 @@ pub mod fuse;
 pub mod head;
 pub mod image;
 #[cfg(feature = "ort")]
+pub mod ppocr;
+#[cfg(feature = "ort")]
 pub mod rfdetr;
+pub mod text;
 pub mod tiling;
 
 use anon_model::BBox;
