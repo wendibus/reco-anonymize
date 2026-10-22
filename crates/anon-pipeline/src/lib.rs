@@ -2,11 +2,13 @@
 
 pub mod analyze;
 pub mod audit;
+pub mod dataset;
 pub mod gate;
 
 pub use PipelineError as Error;
 pub use analyze::{AnalyzeOptions, AnalyzeSummary, analyze};
-pub use audit::{AuditHit, AuditReport, acknowledge, audit, export_clean};
+pub use audit::{AuditHit, AuditReport, ExportNote, acknowledge, audit, export_clean};
+pub use dataset::{ExportOptions, ExportSummary, export_dataset};
 pub use gate::{RenderOptions, RenderSummary, Status, approve, render, status};
 
 #[derive(Debug, thiserror::Error)]

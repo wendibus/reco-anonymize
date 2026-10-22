@@ -109,8 +109,25 @@ fn encoder_candidates(s: &EncodeSettings) -> Vec<&str> {
         return vec![e.as_str()];
     }
     match s.codec {
-        Codec::Hevc => vec!["hevc_videotoolbox", "libx265", "libx264"],
-        Codec::H264 => vec!["h264_videotoolbox", "libx264"],
+        // quality first; hardware encoders only when no software encoder
+        // is built in (e.g. LGPL FFmpeg builds)
+        Codec::Hevc => vec![
+            "hevc_videotoolbox",
+            "libx265",
+            "libx264",
+            "hevc_nvenc",
+            "hevc_qsv",
+            "hevc_amf",
+            "hevc_mf",
+        ],
+        Codec::H264 => vec![
+            "h264_videotoolbox",
+            "libx264",
+            "h264_nvenc",
+            "h264_qsv",
+            "h264_amf",
+            "h264_mf",
+        ],
     }
 }
 
@@ -172,6 +189,16 @@ fn encoder_options(
         if name == "libx265" {
             d.set("x265-params", "log-level=error");
         }
+    } else if name.ends_with("_nvenc") {
+        let cq = (40.0 - q / 100.0 * 28.0).clamp(0.0, 51.0);
+        d.set("preset", "p7");
+        d.set("rc", "vbr");
+        d.set("cq", &format!("{cq:.0}"));
+    } else if name.ends_with("_qsv") {
+        let gq = (40.0 - q / 100.0 * 28.0).clamp(1.0, 51.0);
+        d.set("global_quality", &format!("{gq:.0}"));
+    } else if name.ends_with("_amf") {
+        d.set("quality", "quality");
     }
     d
 }

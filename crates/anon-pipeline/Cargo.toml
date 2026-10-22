@@ -19,6 +19,7 @@ anon-io.workspace = true
 anon-track.workspace = true
 sha2.workspace = true
 hex.workspace = true
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

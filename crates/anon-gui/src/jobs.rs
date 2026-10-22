@@ -1,4 +1,5 @@
-//! Long-running work on worker threads: analyze, preview, render, audit.
+//! Long-running work on worker threads: analyze, preview, render, audit,
+//! training-data export, update install.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
@@ -6,6 +7,8 @@ use std::sync::mpsc::Sender;
 use anon_io::{Codec, EncodeSettings};
 use anon_model::{AnalysisSettings, ProjectDir};
 use anon_pipeline::{AnalyzeOptions, RenderOptions};
+
+use crate::i18n::{tr, trf};
 
 pub enum Job {
     Analyze {
@@ -29,59 +32,44 @@ pub enum Job {
         out: PathBuf,
         model: PathBuf,
     },
+    Export {
+        dir: ProjectDir,
+        out: PathBuf,
+    },
+    Update {
+        release: anon_update::Release,
+    },
+    /// Background update check (no UI lock).
+    CheckUpdate,
 }
 
 impl Job {
     pub fn title(&self) -> &'static str {
         match self {
-            Job::Analyze { .. } => "analyzing…",
-            Job::Preview { .. } => "rendering preview…",
-            Job::Render { .. } => "rendering…",
-            Job::Audit { .. } => "auditing…",
+            Job::Analyze { .. } => tr("analyzing…"),
+            Job::Preview { .. } => tr("rendering preview…"),
+            Job::Render { .. } => tr("rendering…"),
+            Job::Audit { .. } => tr("auditing…"),
+            Job::Export { .. } => tr("exporting training data…"),
+            Job::Update { .. } => tr("downloading update…"),
+            Job::CheckUpdate => "",
         }
     }
 }
 
 pub enum JobMsg {
     /// `fraction < 0` = indeterminate.
-    Progress { fraction: f32, text: String },
+    Progress {
+        fraction: f32,
+        text: String,
+    },
     /// `reload`: project path to reopen afterwards.
     Done {
         text: String,
         ok: bool,
         reload: Option<PathBuf>,
     },
-}
-
-fn config_file(name: &str) -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    let dir = PathBuf::from(home).join(".reco-anonymize");
-    std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join(name))
-}
-
-pub fn last_model() -> Option<PathBuf> {
-    let p = std::fs::read_to_string(config_file("last-model")?).ok()?;
-    let p = PathBuf::from(p.trim());
-    p.exists().then_some(p)
-}
-
-pub fn last_text_model() -> Option<PathBuf> {
-    let p = std::fs::read_to_string(config_file("last-text-model")?).ok()?;
-    let p = PathBuf::from(p.trim());
-    p.exists().then_some(p)
-}
-
-pub fn remember_text_model(p: &Path) {
-    if let Some(f) = config_file("last-text-model") {
-        let _ = std::fs::write(f, p.display().to_string());
-    }
-}
-
-pub fn remember_model(p: &Path) {
-    if let Some(f) = config_file("last-model") {
-        let _ = std::fs::write(f, p.display().to_string());
-    }
+    UpdateAvailable(anon_update::Release),
 }
 
 /// Output of the last approved render of this project.
@@ -101,9 +89,8 @@ fn open_externally(p: &Path) {
     let _ = std::process::Command::new(cmd).arg(p).spawn();
 }
 
-fn frames_progress(tx: &Sender<JobMsg>, label: &str) -> impl FnMut(u64, Option<u64>) {
+fn frames_progress(tx: &Sender<JobMsg>, label: &'static str) -> impl FnMut(u64, Option<u64>) {
     let tx = tx.clone();
-    let label = label.to_string();
     move |done, total| {
         if done % 10 != 0 {
             return;
@@ -111,9 +98,9 @@ fn frames_progress(tx: &Sender<JobMsg>, label: &str) -> impl FnMut(u64, Option<u
         let (fraction, text) = match total {
             Some(t) if t > 0 => (
                 (done as f32 / t as f32).min(1.0),
-                format!("{label}: frame {done} / {t}"),
+                trf("{}: frame {} / {}", &[&tr(label), &done, &t]),
             ),
-            _ => (-1.0, format!("{label}: frame {done}")),
+            _ => (-1.0, trf("{}: frame {}", &[&tr(label), &done])),
         };
         let _ = tx.send(JobMsg::Progress { fraction, text });
     }
@@ -132,22 +119,29 @@ fn audit(
     out: &Path,
     model: &Path,
     tx: &Sender<JobMsg>,
-) -> Result<String, String> {
+) -> Result<(String, bool), String> {
     let (m, mref) = anon_detect::rfdetr::load_verified(model).map_err(|e| e.to_string())?;
     let mut p = frames_progress(tx, "audit");
     let r = anon_pipeline::audit(dir, out, Box::new(m), &mref.sha256, |n| p(n, None))
         .map_err(|e| e.to_string())?;
     Ok(if r.passed() {
-        format!("audit PASSED: {} frames, no uncovered head", r.frames)
+        (
+            trf("audit PASSED: {} frames, no uncovered head", &[&r.frames]),
+            true,
+        )
     } else {
-        format!(
-            "audit FAILED: {} uncovered head(s) — see audit-report.json, fix masks and render again",
-            r.open_hits()
+        (
+            trf(
+                "audit FAILED: {} uncovered head(s) — see audit-report.json, fix masks and render again",
+                &[&r.open_hits()],
+            ),
+            false,
         )
     })
 }
 
-fn run(job: Job, tx: &Sender<JobMsg>) -> Result<(String, Option<PathBuf>), String> {
+/// Ok((text, ok, reload))
+fn run(job: Job, tx: &Sender<JobMsg>) -> Result<(String, bool, Option<PathBuf>), String> {
     match job {
         Job::Analyze {
             src,
@@ -185,10 +179,11 @@ fn run(job: Job, tx: &Sender<JobMsg>) -> Result<(String, Option<PathBuf>), Strin
             )
             .map_err(|e| e.to_string())?;
             Ok((
-                format!(
+                trf(
                     "analysis done: {} frames, {} head tracks, {} text tracks, {} flagged, {} errors",
-                    s.frames, s.tracks, s.text_tracks, s.flagged, s.errors
+                    &[&s.frames, &s.tracks, &s.text_tracks, &s.flagged, &s.errors],
                 ),
+                true,
                 Some(dir.root),
             ))
         }
@@ -203,7 +198,11 @@ fn run(job: Job, tx: &Sender<JobMsg>) -> Result<(String, Option<PathBuf>), Strin
             )
             .map_err(|e| e.to_string())?;
             open_externally(&r.output);
-            Ok((format!("preview written: {}", r.output.display()), None))
+            Ok((
+                trf("preview written: {}", &[&r.output.display()]),
+                true,
+                None,
+            ))
         }
         Job::Render { dir, out, model } => {
             let r = anon_pipeline::render(
@@ -215,38 +214,91 @@ fn run(job: Job, tx: &Sender<JobMsg>) -> Result<(String, Option<PathBuf>), Strin
                 },
             )
             .map_err(|e| e.to_string())?;
-            let mut text = format!(
+            let mut text = trf(
                 "rendered {} frames via {}, timing verified",
-                r.frames, r.encoder
+                &[&r.frames, &r.encoder],
             );
+            let mut ok = true;
             if let Some(model) = model {
                 let _ = tx.send(JobMsg::Progress {
                     fraction: -1.0,
-                    text: "auditing the export…".into(),
+                    text: tr("auditing the export…").into(),
                 });
+                let (t, passed) = audit(&dir, &r.output, &model, tx)?;
                 text += "\n";
-                text += &audit(&dir, &r.output, &model, tx)?;
+                text += &t;
+                ok = passed;
             }
-            Ok((text, Some(dir.root)))
+            Ok((text, ok, Some(dir.root)))
         }
-        Job::Audit { dir, out, model } => Ok((audit(&dir, &out, &model, tx)?, Some(dir.root))),
+        Job::Audit { dir, out, model } => {
+            let (t, ok) = audit(&dir, &out, &model, tx)?;
+            Ok((t, ok, Some(dir.root)))
+        }
+        Job::Export { dir, out } => {
+            let mut p = frames_progress(tx, "export");
+            let s = anon_pipeline::export_dataset(
+                &[dir],
+                &out,
+                &anon_pipeline::ExportOptions::default(),
+                |_, f| p(f, None),
+            )
+            .map_err(|e| e.to_string())?;
+            open_externally(&out);
+            Ok((
+                trf(
+                    "training data: {} images, {} heads → {} (UN-anonymized, keep it local)",
+                    &[
+                        &s.images.iter().sum::<usize>(),
+                        &s.boxes.iter().sum::<usize>(),
+                        &out.display(),
+                    ],
+                ),
+                true,
+                None,
+            ))
+        }
+        Job::Update { release } => {
+            let txp = tx.clone();
+            anon_update::install(&release, move |done, total| {
+                let fraction = total.map_or(-1.0, |t| done as f32 / t.max(1) as f32);
+                let _ = txp.send(JobMsg::Progress {
+                    fraction,
+                    text: format!("{} KiB", done / 1024),
+                });
+            })
+            .map_err(|e| e.to_string())?;
+            Ok((
+                trf(
+                    "updated to {} — restart the app to finish",
+                    &[&release.version],
+                ),
+                true,
+                None,
+            ))
+        }
+        Job::CheckUpdate => {
+            if let Ok(Some(r)) = anon_update::check(env!("CARGO_PKG_VERSION")) {
+                let _ = tx.send(JobMsg::UpdateAvailable(r));
+            }
+            Ok((String::new(), true, None))
+        }
     }
 }
 
 pub fn spawn(job: Job, tx: Sender<JobMsg>) {
     std::thread::spawn(move || {
+        let silent = matches!(job, Job::CheckUpdate);
         let msg = match run(job, &tx) {
-            Ok((text, reload)) => JobMsg::Done {
-                ok: !text.contains("audit FAILED"),
-                text,
-                reload,
-            },
+            Ok((text, ok, reload)) => JobMsg::Done { text, ok, reload },
             Err(text) => JobMsg::Done {
                 text,
                 ok: false,
                 reload: None,
             },
         };
-        let _ = tx.send(msg);
+        if !silent {
+            let _ = tx.send(msg);
+        }
     });
 }

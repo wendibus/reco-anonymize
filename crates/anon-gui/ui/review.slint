@@ -1,7 +1,7 @@
 // reco-anon review — review app for reco-anonymize.
 // Colours follow reco-gui (fluent-dark, #1e1e1e cards, #8ae68a accent).
 
-import { Button, LineEdit, Slider, CheckBox, ProgressIndicator, ScrollView } from "std-widgets.slint";
+import { Button, LineEdit, CheckBox, ProgressIndicator, ScrollView, ComboBox } from "std-widgets.slint";
 
 export struct ZoneInfo {
     id: int,
@@ -89,6 +89,11 @@ export component AppWindow inherits Window {
     in property <int> zone-points;
     in property <[ZoneInfo]> zones;
     in property <int> last-frame;
+    in property <bool> has-flags;
+    in property <string> update-version;
+    in property <string> version;
+    in-out property <int> language-index;
+    in-out property <bool> auto-update;
 
     // ---- callbacks to Rust -------------------------------------------
     callback open-project();
@@ -116,6 +121,11 @@ export component AppWindow inherits Window {
     callback zone-cancel();
     callback zone-finish(string, bool, string, string);
     callback zone-remove(int);
+    callback install-update();
+    callback dismiss-update();
+    callback set-language(int);
+    callback set-auto-update(bool);
+    callback export-dataset();
 
     forward-focus: keys;
     keys := FocusScope {
@@ -160,54 +170,81 @@ export component AppWindow inherits Window {
                 spacing: 6px;
                 height: 34px;
                 Button {
-                    text: "Open…";
+                    text: @tr("Open…");
                     clicked => { root.open-project(); }
                 }
                 Button {
-                    text: "Model…";
+                    text: @tr("Model…");
                     clicked => { root.choose-model(); }
                 }
                 Text {
-                    text: root.model-path == "" ? "no model selected" : root.model-path;
+                    text: root.model-path == "" ? @tr("no model selected") : root.model-path;
                     color: #8a8a8a;
                     vertical-alignment: center;
                     overflow: elide;
                     max-width: 260px;
                 }
                 Button {
-                    text: "Text model…";
+                    text: @tr("Text model…");
                     clicked => { root.choose-text-model(); }
                 }
                 CheckBox {
-                    text: "Jersey numbers";
+                    text: @tr("Jersey numbers");
                     enabled: root.text-model-path != "";
                     checked <=> root.jersey;
                 }
                 Rectangle { horizontal-stretch: 1; }
                 Button {
-                    text: "Analyze";
+                    text: @tr("Analyze");
                     enabled: root.has-project && !root.job-running && root.model-path != "";
                     clicked => { root.run-analyze(); }
                 }
                 Button {
-                    text: "Preview";
+                    text: @tr("Preview");
                     enabled: root.has-project && !root.job-running;
                     clicked => { root.run-preview(); }
                 }
                 Button {
-                    text: "Render…";
+                    text: @tr("Render…");
                     enabled: root.has-project && !root.job-running && root.approved;
                     clicked => { root.run-render(); }
                 }
                 Button {
-                    text: "Audit…";
+                    text: @tr("Audit…");
                     enabled: root.has-project && !root.job-running && root.model-path != "";
                     clicked => { root.run-audit(); }
                 }
                 Button {
-                    text: root.dirty ? "Save*" : "Save";
+                    text: root.dirty ? @tr("Save") + "*" : @tr("Save");
                     enabled: root.has-project && root.dirty;
                     clicked => { root.save(); }
+                }
+            }
+
+            if root.update-version != "": Rectangle {
+                height: 36px;
+                background: #1f3324;
+                border-radius: 4px;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 6px;
+                    spacing: 8px;
+                    Text {
+                        text: @tr("Version {} is available.", root.update-version);
+                        color: #8ae68a;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    Button {
+                        text: @tr("Install update");
+                        primary: true;
+                        enabled: !root.job-running;
+                        clicked => { root.install-update(); }
+                    }
+                    Button {
+                        text: @tr("Later");
+                        clicked => { root.dismiss-update(); }
+                    }
                 }
             }
 
@@ -230,7 +267,7 @@ export component AppWindow inherits Window {
                     }
 
                     if !root.has-project: Text {
-                        text: "Open a video or a .anon project to start reviewing.";
+                        text: @tr("Open a video or a .anon project to start reviewing.");
                         color: #8a8a8a;
                     }
 
@@ -275,19 +312,19 @@ export component AppWindow inherits Window {
                             title: root.frame-info;
                             Text {
                                 text: root.flag-info;
-                                color: root.flag-info == "no flags" ? #6a6a6a : #e6c14d;
+                                color: root.has-flags ? #e6c14d : #6a6a6a;
                                 wrap: word-wrap;
                             }
                             HorizontalLayout {
                                 spacing: 6px;
                                 Button {
-                                    text: "Outline";
+                                    text: @tr("Outline");
                                     checkable: true;
                                     checked: !root.opaque-mode;
                                     clicked => { root.set-opaque(false); }
                                 }
                                 Button {
-                                    text: "Export view";
+                                    text: @tr("Export view");
                                     checkable: true;
                                     checked: root.opaque-mode;
                                     clicked => { root.set-opaque(true); }
@@ -295,15 +332,15 @@ export component AppWindow inherits Window {
                             }
                             HorizontalLayout {
                                 spacing: 10px;
-                                Legend { swatch: #ffd200; label: "auto"; }
-                                Legend { swatch: #28dc5a; label: "manual"; }
-                                Legend { swatch: #ff3c3c; label: "suppressed"; }
-                                Legend { swatch: #00c8ff; label: "selected"; }
+                                Legend { swatch: #ffd200; label: @tr("auto"); }
+                                Legend { swatch: #28dc5a; label: @tr("manual"); }
+                                Legend { swatch: #ff3c3c; label: @tr("suppressed"); }
+                                Legend { swatch: #00c8ff; label: @tr("selected"); }
                             }
                         }
 
                         Card {
-                            title: "Review";
+                            title: @tr("Review");
                             Text {
                                 text: root.review-progress;
                                 color: #cfcfcf;
@@ -312,16 +349,16 @@ export component AppWindow inherits Window {
                             HorizontalLayout {
                                 spacing: 6px;
                                 Button {
-                                    text: "◀ Prev (p)";
+                                    text: @tr("◀ Prev (p)");
                                     clicked => { root.next-flag(false); }
                                 }
                                 Button {
-                                    text: "Next unreviewed (n) ▶";
+                                    text: @tr("Next unreviewed (n) ▶");
                                     clicked => { root.next-flag(true); }
                                 }
                             }
                             Text {
-                                text: "Click a mask to select it. Drag on the picture to add a head the detector missed. ←/→ step, Shift ×10, O toggles the export view.";
+                                text: @tr("Click a mask to select it. Drag on the picture to add a head the detector missed. ←/→ step, Shift ×10, O toggles the export view.");
                                 color: #7a7a7a;
                                 font-size: 11px;
                                 wrap: word-wrap;
@@ -329,7 +366,7 @@ export component AppWindow inherits Window {
                         }
 
                         Card {
-                            title: "Masks in this frame";
+                            title: @tr("Masks in this frame");
                             for t in root.tracks: Rectangle {
                                 height: 26px;
                                 border-radius: 3px;
@@ -355,13 +392,13 @@ export component AppWindow inherits Window {
                                 }
                             }
                             if root.tracks.length == 0: Text {
-                                text: "none";
+                                text: @tr("none");
                                 color: #6a6a6a;
                             }
                         }
 
                         Card {
-                            title: "Selected";
+                            title: @tr("Selected");
                             visible: root.has-selection;
                             height: root.has-selection ? self.preferred-height : 0;
                             Text {
@@ -370,31 +407,31 @@ export component AppWindow inherits Window {
                                 wrap: word-wrap;
                             }
                             reason := LineEdit {
-                                placeholder-text: "Reason (required to suppress)";
+                                placeholder-text: @tr("Reason (required to suppress)");
                                 visible: !root.selected-manual && !root.selected-suppressed;
                             }
                             HorizontalLayout {
                                 spacing: 6px;
                                 if !root.selected-manual && !root.selected-suppressed: Button {
-                                    text: "Suppress (false positive)";
+                                    text: @tr("Suppress (false positive)");
                                     enabled: reason.text != "";
                                     clicked => { root.suppress(reason.text); reason.text = ""; keys.focus(); }
                                 }
                                 if root.selected-suppressed: Button {
-                                    text: "Restore";
+                                    text: @tr("Restore");
                                     clicked => { root.restore(); keys.focus(); }
                                 }
                                 if root.selected-manual: Button {
-                                    text: "Delete keyframe here";
+                                    text: @tr("Delete keyframe here");
                                     clicked => { root.delete-keyframe(); keys.focus(); }
                                 }
                                 Button {
-                                    text: "Deselect";
+                                    text: @tr("Deselect");
                                     clicked => { root.deselect(); keys.focus(); }
                                 }
                             }
                             if root.selected-manual: Text {
-                                text: "Drag a box on another frame to add a keyframe to this track; frames in between are interpolated.";
+                                text: @tr("Drag a box on another frame to add a keyframe to this track; frames in between are interpolated.");
                                 color: #7a7a7a;
                                 font-size: 11px;
                                 wrap: word-wrap;
@@ -402,7 +439,7 @@ export component AppWindow inherits Window {
                         }
 
                         Card {
-                            title: "Zones (always masked)";
+                            title: @tr("Zones (always masked)");
                             for z in root.zones: HorizontalLayout {
                                 spacing: 6px;
                                 Text {
@@ -413,27 +450,27 @@ export component AppWindow inherits Window {
                                     overflow: elide;
                                 }
                                 Button {
-                                    text: "Remove";
+                                    text: @tr("Remove");
                                     clicked => { root.zone-remove(z.id); keys.focus(); }
                                 }
                             }
                             if !root.zone-mode: Button {
-                                text: "Draw zone (stands, scoreboard…)";
+                                text: @tr("Draw zone (stands, scoreboard…)");
                                 enabled: root.has-project;
                                 clicked => { root.zone-mode = true; keys.focus(); }
                             }
                             if root.zone-mode: VerticalLayout {
                                 spacing: 6px;
                                 Text {
-                                    text: "Click the corners on the picture (" + root.zone-points + " so far).";
+                                    text: @tr("Click the corners on the picture ({} so far).", root.zone-points);
                                     color: #e6a0e6;
                                     wrap: word-wrap;
                                 }
                                 zlabel := LineEdit {
-                                    placeholder-text: "Label, e.g. stands";
+                                    placeholder-text: @tr("Label, e.g. stands");
                                 }
                                 limited := CheckBox {
-                                    text: "Only frames";
+                                    text: @tr("Only frames");
                                 }
                                 if limited.checked: HorizontalLayout {
                                     spacing: 6px;
@@ -442,7 +479,7 @@ export component AppWindow inherits Window {
                                         input-type: number;
                                     }
                                     Text {
-                                        text: "to";
+                                        text: @tr("to");
                                         color: #a8a8a8;
                                         vertical-alignment: center;
                                     }
@@ -451,7 +488,7 @@ export component AppWindow inherits Window {
                                         input-type: number;
                                     }
                                     Button {
-                                        text: "Finish";
+                                        text: @tr("Finish");
                                         enabled: root.zone-points >= 3;
                                         clicked => { root.zone-finish(zlabel.text, true, zfrom.text, zto.text); keys.focus(); }
                                     }
@@ -459,18 +496,18 @@ export component AppWindow inherits Window {
                                 HorizontalLayout {
                                     spacing: 6px;
                                     if !limited.checked: Button {
-                                        text: "Finish";
+                                        text: @tr("Finish");
                                         primary: true;
                                         enabled: root.zone-points >= 3;
                                         clicked => { root.zone-finish(zlabel.text, false, "", ""); keys.focus(); }
                                     }
                                     Button {
-                                        text: "Undo point";
+                                        text: @tr("Undo point");
                                         enabled: root.zone-points > 0;
                                         clicked => { root.zone-undo(); keys.focus(); }
                                     }
                                     Button {
-                                        text: "Cancel";
+                                        text: @tr("Cancel");
                                         clicked => { root.zone-cancel(); keys.focus(); }
                                     }
                                 }
@@ -478,20 +515,20 @@ export component AppWindow inherits Window {
                         }
 
                         Card {
-                            title: "Approval";
+                            title: @tr("Approval");
                             Text {
                                 text: root.readiness;
                                 color: root.can-approve ? #8ae68a : #e6c14d;
                                 wrap: word-wrap;
                             }
                             note := LineEdit {
-                                placeholder-text: "Note (optional)";
+                                placeholder-text: @tr("Note (optional)");
                             }
                             nobody := CheckBox {
-                                text: "Clip shows no people";
+                                text: @tr("Clip shows no people");
                             }
                             Button {
-                                text: root.approved ? "Approved ✓" : "Approve";
+                                text: root.approved ? @tr("Approved") + " ✓" : @tr("Approve");
                                 primary: true;
                                 enabled: root.can-approve && !root.approved && !root.job-running;
                                 clicked => { root.approve(note.text, nobody.checked); keys.focus(); }
@@ -500,6 +537,38 @@ export component AppWindow inherits Window {
                                 text: root.export-state;
                                 color: #a8a8a8;
                                 wrap: word-wrap;
+                            }
+                        }
+
+                        Card {
+                            title: @tr("App");
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Text {
+                                    text: @tr("Language");
+                                    color: #a8a8a8;
+                                    vertical-alignment: center;
+                                }
+                                ComboBox {
+                                    model: ["English", "Deutsch", "Français", "Español"];
+                                    current-index <=> root.language-index;
+                                    selected => { root.set-language(self.current-index); }
+                                }
+                            }
+                            CheckBox {
+                                text: @tr("Check for updates at start");
+                                checked <=> root.auto-update;
+                                toggled => { root.set-auto-update(self.checked); }
+                            }
+                            Button {
+                                text: @tr("Export training data…");
+                                enabled: root.has-project && !root.job-running;
+                                clicked => { root.export-dataset(); }
+                            }
+                            Text {
+                                text: "reco-anonymize " + root.version;
+                                color: #6a6a6a;
+                                font-size: 11px;
                             }
                         }
 
@@ -577,7 +646,7 @@ export component AppWindow inherits Window {
                         horizontal-stretch: 1;
                     }
                     Text {
-                        text: "orange: flagged · green: reviewed · red: error · grey: people present";
+                        text: @tr("orange: flagged · green: reviewed · red: error · grey: people present");
                         color: #6a6a6a;
                         font-size: 11px;
                         vertical-alignment: center;

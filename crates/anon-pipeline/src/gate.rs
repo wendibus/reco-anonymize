@@ -74,7 +74,7 @@ pub fn status(dir: &ProjectDir, max_flags: usize) -> Result<Status, PipelineErro
         approval_valid: p.review.approved
             && p.review.approved_hash.as_deref() == Some(hash.as_str()),
         export_clean,
-        export_note,
+        export_note: export_note.to_string(),
     })
 }
 

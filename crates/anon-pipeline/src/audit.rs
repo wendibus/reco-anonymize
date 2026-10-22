@@ -206,24 +206,43 @@ pub fn acknowledge(
     Ok(n)
 }
 
+/// Why an export is (not) clean.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExportNote {
+    NotAudited,
+    OutputChanged,
+    Passed,
+    PassedAcknowledged(usize),
+    OpenHits(usize),
+}
+
+impl std::fmt::Display for ExportNote {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExportNote::NotAudited => write!(f, "not audited"),
+            ExportNote::OutputChanged => write!(f, "output changed or missing since audit"),
+            ExportNote::Passed => write!(f, "audit passed"),
+            ExportNote::PassedAcknowledged(n) => write!(f, "audit passed, {n} hit(s) acknowledged"),
+            ExportNote::OpenHits(n) => write!(f, "{n} open audit hit(s)"),
+        }
+    }
+}
+
 /// Is the rendered file a clean export: audited in its current state with
 /// no open hits.
-pub fn export_clean(dir: &ProjectDir) -> Result<(bool, String), PipelineError> {
+pub fn export_clean(dir: &ProjectDir) -> Result<(bool, ExportNote), PipelineError> {
     let Some(r) = load_report(dir) else {
-        return Ok((false, "not audited".into()));
+        return Ok((false, ExportNote::NotAudited));
     };
     match anon_io::fingerprint(&r.output) {
         Ok(fp) if fp == r.output_fingerprint => {}
-        _ => return Ok((false, "output changed or missing since audit".into())),
+        _ => return Ok((false, ExportNote::OutputChanged)),
     }
     Ok(if !r.passed() {
-        (false, format!("{} open audit hit(s)", r.open_hits()))
+        (false, ExportNote::OpenHits(r.open_hits()))
     } else if r.hits.is_empty() {
-        (true, "audit passed".into())
+        (true, ExportNote::Passed)
     } else {
-        (
-            true,
-            format!("audit passed, {} hit(s) acknowledged", r.hits.len()),
-        )
+        (true, ExportNote::PassedAcknowledged(r.hits.len()))
     })
 }

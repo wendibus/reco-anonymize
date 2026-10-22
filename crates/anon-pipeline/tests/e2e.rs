@@ -487,3 +487,92 @@ fn jersey_numbers_are_masked_when_enabled() {
     }
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn exports_reviewed_head_labels_as_coco() {
+    if !have("ffmpeg") {
+        return;
+    }
+    let dir: PathBuf = std::env::temp_dir().join(format!("anon-export-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("clip.mp4");
+    let st = Command::new("ffmpeg")
+        .args(["-v", "error", "-y"])
+        .args([
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=0x606060:size=320x240:rate=25:duration=2",
+        ])
+        .args([
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:size=20x80:rate=25:duration=2",
+        ])
+        .args(["-filter_complex", "[0:v][1:v]overlay=x='20+t*60':y=80"])
+        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
+        .arg(&src)
+        .status()
+        .unwrap();
+    assert!(st.success());
+    let proj = ProjectDir::for_source(&src);
+    analyze(&src, &proj, Box::new(RedFinder), opts(), |_, _| {}).unwrap();
+    let out = dir.join("dataset");
+    let eo = anon_pipeline::ExportOptions {
+        every: 5,
+        block: 10,
+        ..Default::default()
+    };
+    // unapproved -> refused
+    assert!(
+        anon_pipeline::export_dataset(std::slice::from_ref(&proj), &out, &eo, |_, _| {}).is_err()
+    );
+    approve(&proj, None, false).unwrap();
+    let s =
+        anon_pipeline::export_dataset(std::slice::from_ref(&proj), &out, &eo, |_, _| {}).unwrap();
+    assert_eq!(s.images.iter().sum::<usize>(), 10);
+    assert_eq!(
+        s.boxes.iter().sum::<usize>(),
+        10,
+        "one head per exported frame"
+    );
+    assert!(s.images[0] > 0);
+    // the box of frame 0 sits on the player's head
+    let mut found = false;
+    for split in ["train", "valid", "test"] {
+        let doc: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(out.join(split).join("_annotations.coco.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(doc["categories"][0]["name"], "head");
+        for img in doc["images"].as_array().unwrap() {
+            let f = img["file_name"].as_str().unwrap();
+            assert!(out.join(split).join(f).exists());
+            if f.ends_with("_0000000.jpg") {
+                let id = &img["id"];
+                let ann = doc["annotations"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|a| &a["image_id"] == id)
+                    .unwrap();
+                let b: Vec<f64> = ann["bbox"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_f64().unwrap())
+                    .collect();
+                assert!(
+                    (b[0] - 20.0).abs() < 3.0 && (b[1] - 80.0).abs() < 3.0,
+                    "{b:?}"
+                );
+                assert!(b[3] < 30.0, "head, not the whole body: {b:?}");
+                found = true;
+            }
+        }
+    }
+    assert!(found);
+    assert!(out.join("README.txt").exists());
+    std::fs::remove_dir_all(&dir).ok();
+}

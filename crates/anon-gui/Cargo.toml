@@ -21,6 +21,9 @@ anon-model.workspace = true
 anon-review.workspace = true
 anon-pipeline.workspace = true
 anon-io.workspace = true
+anon-update.workspace = true
+dirs = "6"
+sys-locale = "0.3"
 anon-detect = { workspace = true, features = ["ort"] }
 slint = { version = "~1.15", default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "renderer-software", "accessibility", "compat-1-2"] }
 serde_json.workspace = true

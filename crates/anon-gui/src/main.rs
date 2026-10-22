@@ -9,7 +9,9 @@
     windows_subsystem = "windows"
 )]
 
+mod i18n;
 mod jobs;
+mod settings;
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -22,7 +24,9 @@ use anon_model::frames::flag;
 use anon_review::{RegionRef, ReviewSession, Rgba, ViewMode};
 use slint::{Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 
+use i18n::{Lang, tr, trf};
 use jobs::{Job, JobMsg};
+use settings::Settings;
 
 slint::include_modules!();
 
@@ -30,6 +34,8 @@ pub struct App {
     session: Option<ReviewSession>,
     model: Option<PathBuf>,
     text_model: Option<PathBuf>,
+    settings: Settings,
+    update: Option<anon_update::Release>,
     jobs: mpsc::Sender<JobMsg>,
     job_running: bool,
     timeline_dirty: bool,
@@ -79,6 +85,27 @@ fn timeline(s: &ReviewSession, width: usize) -> Rgba {
     }
 }
 
+fn flag_label(name: &str) -> &'static str {
+    match name {
+        "low_score" => tr("low score"),
+        "count_drop" => tr("count drop"),
+        "track_edge" => tr("track starts/ends in view"),
+        "long_interp" => tr("long interpolation"),
+        _ => tr("error"),
+    }
+}
+
+fn note_label(n: &anon_pipeline::ExportNote) -> String {
+    use anon_pipeline::ExportNote as N;
+    match n {
+        N::NotAudited => tr("not audited").into(),
+        N::OutputChanged => tr("output changed or missing since audit").into(),
+        N::Passed => tr("audit passed").into(),
+        N::PassedAcknowledged(k) => trf("audit passed, {} hit(s) acknowledged", &[k]),
+        N::OpenHits(k) => trf("{} open audit hit(s)", &[k]),
+    }
+}
+
 fn message(ui: &AppWindow, text: impl Into<SharedString>, error: bool) {
     ui.set_message(text.into());
     ui.set_message_error(error);
@@ -125,8 +152,8 @@ fn refresh(ui: &AppWindow, app: &mut App) {
         .map(|z| ZoneInfo {
             id: z.id as i32,
             label: match z.range {
-                Some((a, b)) => format!("{} · frames {a}–{b}", z.label),
-                None => format!("{} · whole clip", z.label),
+                Some((a, b)) => trf("{} · frames {}–{}", &[&z.label, &a, &b]),
+                None => trf("{} · whole clip", &[&z.label]),
             }
             .into(),
         })
@@ -138,59 +165,61 @@ fn refresh(ui: &AppWindow, app: &mut App) {
 
     match s.render_current() {
         Ok(img) => ui.set_frame_image(to_image(&img)),
-        Err(e) => message(ui, format!("cannot show frame: {e}"), true),
+        Err(e) => message(ui, trf("cannot show frame: {}", &[&e]), true),
     }
     let rec = s.frames.get(s.current).copied();
     ui.set_frame_info(
         format!(
-            "Frame {} / {}{}",
-            s.current,
-            s.frame_count().saturating_sub(1),
-            rec.map_or(String::new(), |r| format!(" · {} people", r.persons))
+            "{}{}",
+            trf(
+                "Frame {} / {}",
+                &[&s.current, &s.frame_count().saturating_sub(1)]
+            ),
+            rec.map_or(String::new(), |r| trf(" · {} people", &[&r.persons]))
         )
         .into(),
     );
     let flags = s.flags_at(s.current);
+    ui.set_has_flags(!flags.is_empty());
     ui.set_flag_info(if flags.is_empty() {
-        "no flags".into()
+        tr("no flags").into()
     } else {
-        format!("flagged: {}", flags.join(", ")).into()
+        let names: Vec<&str> = flags.iter().map(|f| flag_label(f)).collect();
+        trf("flagged: {}", &[&names.join(", ")]).into()
     });
 
     let r = s.readiness();
     ui.set_review_progress(
-        format!(
+        trf(
             "{} flagged frame(s), {} reviewed, {} to go",
-            r.flagged,
-            r.flagged - r.unreviewed,
-            r.unreviewed
+            &[&r.flagged, &(r.flagged - r.unreviewed), &r.unreviewed],
         )
         .into(),
     );
-    let mut lines = Vec::new();
+    let mut lines: Vec<String> = Vec::new();
     if r.errors > 0 {
-        lines.push(format!("{} frame(s) in error: re-analyze first", r.errors));
+        lines.push(trf("{} frame(s) in error: re-analyze first", &[&r.errors]));
     }
     if r.unreviewed > 0 {
-        lines.push(format!("{} flagged frame(s) still to review", r.unreviewed));
+        lines.push(trf("{} flagged frame(s) still to review", &[&r.unreviewed]));
     }
     if r.nobody_detected {
-        lines.push("nobody detected in the whole clip: check the model".into());
+        lines.push(tr("nobody detected in the whole clip: check the model").into());
     }
     if lines.is_empty() {
         lines.push(if r.approval_valid {
-            "approved — Render is unlocked".into()
+            tr("approved — Render is unlocked").into()
         } else {
-            "ready to approve".into()
+            tr("ready to approve").into()
         });
     }
     ui.set_readiness(lines.join("\n").into());
     ui.set_can_approve(r.can_approve());
     ui.set_approved(r.approval_valid);
     let export = match anon_pipeline::export_clean(&s.dir) {
-        Ok((true, note)) => format!("export: CLEAN — {note}"),
-        Ok((false, note)) => format!("export: not clean — {note}"),
-        Err(e) => format!("export: {e}"),
+        Ok((true, note)) => trf("export: CLEAN — {}", &[&note_label(&note)]),
+        Ok((false, note)) => trf("export: not clean — {}", &[&note_label(&note)]),
+        Err(e) => trf("export: not clean — {}", &[&e]),
     };
     ui.set_export_state(export.into());
 
@@ -206,15 +235,15 @@ fn refresh(ui: &AppWindow, app: &mut App) {
             score,
         } = reg.what
         {
-            let mut label = format!("#{id} {}", if manual { "manual" } else { "auto" });
+            let mut label = format!("#{id} {}", if manual { tr("manual") } else { tr("auto") });
             if !manual && !interpolated {
-                label += &format!(" · score {score:.2}");
+                label += &trf(" · score {}", &[&format!("{score:.2}")]);
             }
             if interpolated {
-                label += " · interpolated";
+                label += tr(" · interpolated");
             }
             if suppressed {
-                label += " · SUPPRESSED";
+                label += tr(" · SUPPRESSED");
             }
             rows.push(TrackInfo {
                 id: id as i32,
@@ -233,14 +262,23 @@ fn refresh(ui: &AppWindow, app: &mut App) {
         Some(t) => {
             let first = t.keyframes.first().map_or(0, |k| k.frame);
             let last = t.keyframes.last().map_or(0, |k| k.frame);
-            let mut info = format!(
-                "track #{} · {} · frames {first}–{last} · {} keyframe(s)",
-                t.id,
-                if t.is_manual() { "manual" } else { "auto" },
-                t.keyframes.len()
+            let mut info = trf(
+                "track #{} · {} · frames {}–{} · {} keyframe(s)",
+                &[
+                    &t.id,
+                    &if t.is_manual() {
+                        tr("manual")
+                    } else {
+                        tr("auto")
+                    },
+                    &first,
+                    &last,
+                    &t.keyframes.len(),
+                ],
             );
             if let Some(sup) = &t.suppressed {
-                info += &format!("\nsuppressed: {}", sup.reason);
+                info += "\n";
+                info += &trf("suppressed: {}", &[&sup.reason]);
             }
             ui.set_selected_info(info.into());
             ui.set_selected_manual(t.is_manual());
@@ -270,17 +308,18 @@ fn open_session(ui: &AppWindow, app: &Shared, path: &Path) {
         Ok(s) => {
             a.session = Some(s);
             a.timeline_dirty = true;
-            message(ui, format!("opened {}", path.display()), false);
+            message(ui, trf("opened {}", &[&path.display()]), false);
         }
         Err(e) => {
             // a video without project: offer analysis
             a.session = None;
             if path.is_file() {
+                log::info!("no project yet: {e}");
                 message(
                     ui,
-                    format!(
-                        "{} has no analysis yet ({e}). Choose a model and press Analyze.",
-                        path.display()
+                    trf(
+                        "{} has no analysis yet. Choose a model and press Analyze.",
+                        &[&path.display()],
                     ),
                     true,
                 );
@@ -290,7 +329,7 @@ fn open_session(ui: &AppWindow, app: &Shared, path: &Path) {
                 refresh_buttons_only(ui, &a);
                 return;
             }
-            message(ui, format!("cannot open {}: {e}", path.display()), true);
+            message(ui, trf("cannot open {}: {}", &[&path.display(), &e]), true);
         }
     }
     refresh(ui, &mut a);
@@ -342,7 +381,7 @@ fn start_job(ui: &AppWindow, app: &Shared, job: Job) {
     if let Some(s) = a.session.as_mut()
         && let Err(e) = s.save()
     {
-        message(ui, format!("save failed: {e}"), true);
+        message(ui, trf("save failed: {}", &[&e]), true);
         return;
     }
     a.job_running = true;
@@ -354,12 +393,30 @@ fn start_job(ui: &AppWindow, app: &Shared, job: Job) {
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    anon_update::cleanup();
+    let settings = Settings::load();
+    let lang = settings
+        .language
+        .as_deref()
+        .and_then(Lang::from_code)
+        .unwrap_or_else(Lang::detect);
+    i18n::set(lang);
     let ui = AppWindow::new()?;
+    // the translation context exists once the backend is up
+    i18n::set(lang);
+    ui.set_language_index(lang.index());
+    ui.set_auto_update(settings.check_updates);
+    ui.set_version(env!("CARGO_PKG_VERSION").into());
     let (tx, rx) = mpsc::channel::<JobMsg>();
+    if settings.check_updates {
+        jobs::spawn(Job::CheckUpdate, tx.clone());
+    }
     let app: Shared = Rc::new(RefCell::new(App {
         session: None,
-        model: jobs::last_model(),
-        text_model: jobs::last_text_model(),
+        model: settings.model.clone(),
+        text_model: settings.text_model.clone(),
+        settings,
+        update: None,
         jobs: tx,
         job_running: false,
         timeline_dirty: true,
@@ -403,7 +460,7 @@ fn main() -> anyhow::Result<()> {
                 .or_else(|| s.next_flag(forward, false))
             {
                 Some(f) => s.goto(f),
-                None => message(&ui, "no flagged frames", false),
+                None => message(&ui, tr("no flagged frames"), false),
             }
             app.timeline_dirty = true;
         }
@@ -489,7 +546,7 @@ fn main() -> anyhow::Result<()> {
     ui.on_save(move || {
         let ui = w.unwrap();
         edit(&ui, &a, |_| Ok(()));
-        message(&ui, "saved", false);
+        message(&ui, tr("saved"), false);
     });
     let (w, a) = (ui.as_weak(), app.clone());
     ui.on_approve(move |note, nobody| {
@@ -498,7 +555,7 @@ fn main() -> anyhow::Result<()> {
         if let Some(s) = app.session.as_mut() {
             let note = (!note.is_empty()).then(|| note.to_string());
             match s.approve(note, nobody) {
-                Ok(h) => message(&ui, format!("approved ({})", &h[..12]), false),
+                Ok(h) => message(&ui, trf("approved ({})", &[&&h[..12]]), false),
                 Err(e) => message(&ui, e.to_string(), true),
             }
         }
@@ -542,7 +599,7 @@ fn main() -> anyhow::Result<()> {
             match (from.trim().parse::<u64>(), to.trim().parse::<u64>()) {
                 (Ok(f), Ok(t)) => Some((f, t)),
                 _ => {
-                    message(&ui, "frame range: enter two frame numbers", true);
+                    message(&ui, tr("frame range: enter two frame numbers"), true);
                     return;
                 }
             }
@@ -569,7 +626,7 @@ fn main() -> anyhow::Result<()> {
     ui.on_open_project(move || {
         let ui = w.unwrap();
         let picked = rfd::FileDialog::new()
-            .set_title("Open a video or its .anon project")
+            .set_title(tr("Open a video or its .anon project"))
             .add_filter("Video", &["mp4", "mov", "mkv", "m4v", "avi", "mts"])
             .add_filter("Project", &["json"])
             .pick_file();
@@ -587,12 +644,13 @@ fn main() -> anyhow::Result<()> {
     ui.on_choose_model(move || {
         let ui = w.unwrap();
         if let Some(p) = rfd::FileDialog::new()
-            .set_title("RF-DETR-Seg ONNX model (with .onnx.json manifest)")
+            .set_title(tr("Person model (RF-DETR-Seg ONNX with manifest)"))
             .add_filter("ONNX", &["onnx"])
             .pick_file()
         {
-            jobs::remember_model(&p);
             let mut app = a.borrow_mut();
+            app.settings.model = Some(p.clone());
+            app.settings.save();
             app.model = Some(p);
             refresh_buttons_only(&ui, &app);
         }
@@ -601,12 +659,13 @@ fn main() -> anyhow::Result<()> {
     ui.on_choose_text_model(move || {
         let ui = w.unwrap();
         if let Some(p) = rfd::FileDialog::new()
-            .set_title("PP-OCR det ONNX model (with .onnx.json manifest)")
+            .set_title(tr("Text model (PP-OCR det ONNX with manifest)"))
             .add_filter("ONNX", &["onnx"])
             .pick_file()
         {
-            jobs::remember_text_model(&p);
             let mut app = a.borrow_mut();
+            app.settings.text_model = Some(p.clone());
+            app.settings.save();
             app.text_model = Some(p);
             refresh(&ui, &mut app);
         }
@@ -663,13 +722,13 @@ fn main() -> anyhow::Result<()> {
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
         let out = rfd::FileDialog::new()
-            .set_title("Save anonymized video")
+            .set_title(tr("Save anonymized video"))
             .set_file_name(format!("{stem}-anon.mp4"))
             .set_directory(src.parent().unwrap_or(Path::new(".")))
             .save_file();
         if let Some(out) = out {
             if out == src {
-                message(&ui, "refusing to overwrite the source", true);
+                message(&ui, tr("refusing to overwrite the source"), true);
                 return;
             }
             start_job(&ui, &a, Job::Render { dir, out, model });
@@ -688,7 +747,7 @@ fn main() -> anyhow::Result<()> {
         let Some(model) = model else { return };
         let last = jobs::last_render(&dir);
         let out = rfd::FileDialog::new()
-            .set_title("Rendered video to audit")
+            .set_title(tr("Rendered video to audit"))
             .add_filter("Video", &["mp4", "mov", "mkv", "m4v"]);
         let out = match &last {
             Some(p) => out
@@ -706,6 +765,60 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
+    // ---- app settings, export, update ----------------------------------------
+    let (w, a) = (ui.as_weak(), app.clone());
+    ui.on_set_language(move |i| {
+        let ui = w.unwrap();
+        let l = Lang::from_index(i);
+        i18n::set(l);
+        let mut app = a.borrow_mut();
+        app.settings.language = Some(l.code().into());
+        app.settings.save();
+        app.timeline_dirty = true;
+        refresh(&ui, &mut app);
+    });
+    let a = app.clone();
+    ui.on_set_auto_update(move |on| {
+        let mut app = a.borrow_mut();
+        app.settings.check_updates = on;
+        app.settings.save();
+    });
+    let (w, a) = (ui.as_weak(), app.clone());
+    ui.on_dismiss_update(move || {
+        w.unwrap().set_update_version("".into());
+        a.borrow_mut().update = None;
+    });
+    let (w, a) = (ui.as_weak(), app.clone());
+    ui.on_install_update(move || {
+        let ui = w.unwrap();
+        let rel = a.borrow().update.clone();
+        if let Some(release) = rel {
+            ui.set_update_version("".into());
+            start_job(&ui, &a, Job::Update { release });
+        }
+    });
+    let (w, a) = (ui.as_weak(), app.clone());
+    ui.on_export_dataset(move || {
+        let ui = w.unwrap();
+        let dir = a.borrow().session.as_ref().map(|s| s.dir.clone());
+        let Some(dir) = dir else { return };
+        let start = anon_pipeline::dataset::default_out(&dir).ok();
+        let mut dlg = rfd::FileDialog::new().set_title(tr("Folder for the training data"));
+        if let Some(p) = start.as_ref().and_then(|p| p.parent()) {
+            dlg = dlg.set_directory(p);
+        }
+        if let Some(out) = dlg.pick_folder() {
+            start_job(
+                &ui,
+                &a,
+                Job::Export {
+                    dir,
+                    out: out.join("head-dataset"),
+                },
+            );
+        }
+    });
+
     // ---- job messages --------------------------------------------------------
     let timer = slint::Timer::default();
     let (w, a) = (ui.as_weak(), app.clone());
@@ -716,6 +829,10 @@ fn main() -> anyhow::Result<()> {
             let Some(ui) = w.upgrade() else { return };
             while let Ok(msg) = rx.try_recv() {
                 match msg {
+                    JobMsg::UpdateAvailable(r) => {
+                        ui.set_update_version(r.version.clone().into());
+                        a.borrow_mut().update = Some(r);
+                    }
                     JobMsg::Progress { fraction, text } => {
                         ui.set_job_progress(fraction);
                         ui.set_job_text(text.into());

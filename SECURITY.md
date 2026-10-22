@@ -13,7 +13,11 @@ scene or use synthetic test clips.
 
 ## Guarantees the code enforces
 
-- Nothing leaves the machine: no network access besides what you build with.
+- Nothing leaves the machine. The only network request is the optional update check against
+  the GitHub releases API of this repository (can be switched off in the app); it sends no
+  footage, paths or identifiers. Updates are installed only when the archive's SHA-256 matches
+  the release's `SHA256SUMS.txt`.
+- Exported training datasets contain un-anonymized frames and carry a README saying so.
 - Frames that were not analysed, failed, or no longer match the analysis are
   rendered fully opaque.
 - Exports require a human approval bound to a hash of the exact masks, and are

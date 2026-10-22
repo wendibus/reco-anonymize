@@ -1,0 +1,164 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: fr\n"
+
+msgid "Analyze"
+msgstr "Analyser"
+
+msgid "App"
+msgstr "Application"
+
+msgid "Approval"
+msgstr "Validation"
+
+msgid "Approve"
+msgstr "Valider"
+
+msgid "Approved"
+msgstr "Validé"
+
+msgid "Audit…"
+msgstr "Contrôler…"
+
+msgid "Cancel"
+msgstr "Annuler"
+
+msgid "Check for updates at start"
+msgstr "Rechercher des mises à jour au démarrage"
+
+msgid "Click a mask to select it. Drag on the picture to add a head the detector missed. ←/→ step, Shift ×10, O toggles the export view."
+msgstr "Cliquez sur un masque pour le sélectionner. Faites glisser sur l’image pour ajouter une tête manquée. ←/→ image par image, Maj ×10, O bascule la vue d’export."
+
+msgid "Click the corners on the picture ({} so far)."
+msgstr "Cliquez les coins sur l’image ({} jusqu’ici)."
+
+msgid "Clip shows no people"
+msgstr "Le clip ne montre personne"
+
+msgid "Delete keyframe here"
+msgstr "Supprimer l’image clé ici"
+
+msgid "Deselect"
+msgstr "Désélectionner"
+
+msgid "Drag a box on another frame to add a keyframe to this track; frames in between are interpolated."
+msgstr "Tracez un cadre sur une autre image pour ajouter une image clé à cette piste ; les images intermédiaires sont interpolées."
+
+msgid "Draw zone (stands, scoreboard…)"
+msgstr "Dessiner une zone (tribunes, tableau…)"
+
+msgid "Export training data…"
+msgstr "Exporter les données d’entraînement…"
+
+msgid "Export view"
+msgstr "Vue d’export"
+
+msgid "Finish"
+msgstr "Terminer"
+
+msgid "Install update"
+msgstr "Installer la mise à jour"
+
+msgid "Jersey numbers"
+msgstr "Numéros de maillot"
+
+msgid "Label, e.g. stands"
+msgstr "Nom, p. ex. tribunes"
+
+msgid "Language"
+msgstr "Langue"
+
+msgid "Later"
+msgstr "Plus tard"
+
+msgid "Masks in this frame"
+msgstr "Masques de cette image"
+
+msgid "Model…"
+msgstr "Modèle…"
+
+msgid "Next unreviewed (n) ▶"
+msgstr "Suivant non vérifié (n) ▶"
+
+msgid "Note (optional)"
+msgstr "Note (facultatif)"
+
+msgid "Only frames"
+msgstr "Seulement les images"
+
+msgid "Open a video or a .anon project to start reviewing."
+msgstr "Ouvrez une vidéo ou un projet .anon pour commencer la vérification."
+
+msgid "Open…"
+msgstr "Ouvrir…"
+
+msgid "Outline"
+msgstr "Contours"
+
+msgid "Preview"
+msgstr "Aperçu"
+
+msgid "Reason (required to suppress)"
+msgstr "Motif (requis pour supprimer)"
+
+msgid "Remove"
+msgstr "Retirer"
+
+msgid "Render…"
+msgstr "Rendre…"
+
+msgid "Restore"
+msgstr "Restaurer"
+
+msgid "Review"
+msgstr "Vérification"
+
+msgid "Save"
+msgstr "Enregistrer"
+
+msgid "Selected"
+msgstr "Sélection"
+
+msgid "Suppress (false positive)"
+msgstr "Supprimer (faux positif)"
+
+msgid "Text model…"
+msgstr "Modèle de texte…"
+
+msgid "Undo point"
+msgstr "Annuler le point"
+
+msgid "Version {} is available."
+msgstr "La version {} est disponible."
+
+msgid "Zones (always masked)"
+msgstr "Zones (toujours masquées)"
+
+msgid "auto"
+msgstr "auto"
+
+msgid "manual"
+msgstr "manuel"
+
+msgid "no model selected"
+msgstr "aucun modèle choisi"
+
+msgid "none"
+msgstr "aucun"
+
+msgid "orange: flagged · green: reviewed · red: error · grey: people present"
+msgstr "orange : signalé · vert : vérifié · rouge : erreur · gris : personnes"
+
+msgid "selected"
+msgstr "sélectionné"
+
+msgid "suppressed"
+msgstr "supprimé"
+
+msgid "to"
+msgstr "à"
+
+msgid "◀ Prev (p)"
+msgstr "◀ Précédent (p)"
+

@@ -1,0 +1,164 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: es\n"
+
+msgid "Analyze"
+msgstr "Analizar"
+
+msgid "App"
+msgstr "Aplicación"
+
+msgid "Approval"
+msgstr "Aprobación"
+
+msgid "Approve"
+msgstr "Aprobar"
+
+msgid "Approved"
+msgstr "Aprobado"
+
+msgid "Audit…"
+msgstr "Auditar…"
+
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgid "Check for updates at start"
+msgstr "Buscar actualizaciones al iniciar"
+
+msgid "Click a mask to select it. Drag on the picture to add a head the detector missed. ←/→ step, Shift ×10, O toggles the export view."
+msgstr "Haz clic en una máscara para seleccionarla. Arrastra sobre la imagen para añadir una cabeza no detectada. ←/→ fotograma a fotograma, Mayús ×10, O alterna la vista de exportación."
+
+msgid "Click the corners on the picture ({} so far)."
+msgstr "Haz clic en las esquinas de la imagen ({} hasta ahora)."
+
+msgid "Clip shows no people"
+msgstr "El clip no muestra personas"
+
+msgid "Delete keyframe here"
+msgstr "Eliminar fotograma clave aquí"
+
+msgid "Deselect"
+msgstr "Deseleccionar"
+
+msgid "Drag a box on another frame to add a keyframe to this track; frames in between are interpolated."
+msgstr "Arrastra un recuadro en otro fotograma para añadir un fotograma clave a esta pista; los intermedios se interpolan."
+
+msgid "Draw zone (stands, scoreboard…)"
+msgstr "Dibujar zona (gradas, marcador…)"
+
+msgid "Export training data…"
+msgstr "Exportar datos de entrenamiento…"
+
+msgid "Export view"
+msgstr "Vista de exportación"
+
+msgid "Finish"
+msgstr "Terminar"
+
+msgid "Install update"
+msgstr "Instalar actualización"
+
+msgid "Jersey numbers"
+msgstr "Dorsales"
+
+msgid "Label, e.g. stands"
+msgstr "Nombre, p. ej. gradas"
+
+msgid "Language"
+msgstr "Idioma"
+
+msgid "Later"
+msgstr "Más tarde"
+
+msgid "Masks in this frame"
+msgstr "Máscaras en este fotograma"
+
+msgid "Model…"
+msgstr "Modelo…"
+
+msgid "Next unreviewed (n) ▶"
+msgstr "Siguiente sin revisar (n) ▶"
+
+msgid "Note (optional)"
+msgstr "Nota (opcional)"
+
+msgid "Only frames"
+msgstr "Solo fotogramas"
+
+msgid "Open a video or a .anon project to start reviewing."
+msgstr "Abre un vídeo o un proyecto .anon para empezar la revisión."
+
+msgid "Open…"
+msgstr "Abrir…"
+
+msgid "Outline"
+msgstr "Contorno"
+
+msgid "Preview"
+msgstr "Vista previa"
+
+msgid "Reason (required to suppress)"
+msgstr "Motivo (necesario para suprimir)"
+
+msgid "Remove"
+msgstr "Quitar"
+
+msgid "Render…"
+msgstr "Renderizar…"
+
+msgid "Restore"
+msgstr "Restaurar"
+
+msgid "Review"
+msgstr "Revisión"
+
+msgid "Save"
+msgstr "Guardar"
+
+msgid "Selected"
+msgstr "Seleccionado"
+
+msgid "Suppress (false positive)"
+msgstr "Suprimir (falso positivo)"
+
+msgid "Text model…"
+msgstr "Modelo de texto…"
+
+msgid "Undo point"
+msgstr "Deshacer punto"
+
+msgid "Version {} is available."
+msgstr "La versión {} está disponible."
+
+msgid "Zones (always masked)"
+msgstr "Zonas (siempre enmascaradas)"
+
+msgid "auto"
+msgstr "auto"
+
+msgid "manual"
+msgstr "manual"
+
+msgid "no model selected"
+msgstr "ningún modelo seleccionado"
+
+msgid "none"
+msgstr "ninguna"
+
+msgid "orange: flagged · green: reviewed · red: error · grey: people present"
+msgstr "naranja: marcado · verde: revisado · rojo: error · gris: personas"
+
+msgid "selected"
+msgstr "seleccionado"
+
+msgid "suppressed"
+msgstr "suprimido"
+
+msgid "to"
+msgstr "a"
+
+msgid "◀ Prev (p)"
+msgstr "◀ Anterior (p)"
+

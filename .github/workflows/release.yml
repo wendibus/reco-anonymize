@@ -1,0 +1,132 @@
+name: Release
+
+# Builds Linux, Windows and macOS packages for a version tag (v1.2.3) and
+# publishes them with SHA256SUMS.txt, which the in-app updater requires.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.5.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-24.04
+          - name: windows-x86_64
+            os: windows-2022
+          - name: macos-arm64
+            os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - name: Version
+        id: v
+        shell: bash
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VER="${TAG#v}"
+          CARGO_VER=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "$VER" != "$CARGO_VER" ]; then
+            echo "tag $TAG does not match Cargo version $CARGO_VER" >&2; exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.name }}
+
+      # ---- Linux --------------------------------------------------------
+      - name: Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
+            libavdevice-dev libavfilter-dev libswresample-dev pkg-config clang patchelf \
+            libfontconfig1-dev libxkbcommon-dev
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: cargo build --release --locked -p anon-cli -p anon-gui
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: packaging/package-linux.sh "${{ steps.v.outputs.version }}" target/release dist
+
+      # ---- macOS --------------------------------------------------------
+      - name: Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg pkg-config dylibbundler
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: cargo build --release --locked -p anon-cli -p anon-gui
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: packaging/package-macos.sh "${{ steps.v.outputs.version }}" target/release dist
+
+      # ---- Windows ------------------------------------------------------
+      - name: FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-shared-7.1.zip"
+          Invoke-WebRequest $url -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath $env:RUNNER_TEMP
+          $dir = Get-ChildItem $env:RUNNER_TEMP -Directory -Filter "ffmpeg-n7.1*" | Select-Object -First 1
+          "FFMPEG_DIR=$($dir.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$($dir.FullName)\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: cargo build --release --locked -p anon-cli -p anon-gui
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: pwsh packaging/package-windows.ps1 "${{ steps.v.outputs.version }}" target/release dist
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          mkdir -p smoke && cd smoke
+          case "${{ runner.os }}" in
+            Windows) unzip -q ../dist/*.zip ;;
+            *) tar -xzf ../dist/*.tar.gz ;;
+          esac
+          if [ "${{ runner.os }}" = "Windows" ]; then BIN=reco-anon.exe; else BIN=reco-anon; fi
+          ./reco-anonymize-*/$BIN --version
+          ./reco-anonymize-*/$BIN info --help > /dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: reco-anonymize ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: dist/*

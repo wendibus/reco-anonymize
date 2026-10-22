@@ -111,6 +111,27 @@ enum Cmd {
         #[arg(long)]
         reason: String,
     },
+    /// Export reviewed head labels (COCO, RF-DETR / Reco Trainer layout) to
+    /// train a dedicated head detector. Contains UN-anonymized frames.
+    ExportDataset {
+        /// One or more videos or .anon projects.
+        #[arg(required = true)]
+        projects: Vec<PathBuf>,
+        #[arg(short, long)]
+        out: PathBuf,
+        /// Take every n-th frame.
+        #[arg(long, default_value_t = 15)]
+        every: u64,
+        /// Also export projects without a valid approval.
+        #[arg(long)]
+        allow_unreviewed: bool,
+    },
+    /// Check for a new release and install it.
+    Update {
+        /// Only check, do not install.
+        #[arg(long)]
+        check: bool,
+    },
     /// Render the anonymized video.
     Render {
         project: PathBuf,
@@ -201,6 +222,7 @@ fn parse_points(s: &str) -> Result<Vec<[f32; 2]>> {
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    anon_update::cleanup();
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Info { video } => {
@@ -430,6 +452,57 @@ fn main() -> Result<()> {
                 "{n} hit(s) acknowledged; export {}: {note}",
                 if clean { "CLEAN" } else { "NOT clean" }
             );
+        }
+        Cmd::ExportDataset {
+            projects,
+            out,
+            every,
+            allow_unreviewed,
+        } => {
+            let dirs: Vec<ProjectDir> = projects.iter().map(|p| project_dir(p)).collect();
+            let opts = anon_pipeline::ExportOptions {
+                every,
+                allow_unreviewed,
+                ..Default::default()
+            };
+            let s = anon_pipeline::export_dataset(&dirs, &out, &opts, |name, f| {
+                if f.is_multiple_of(250) {
+                    eprint!("\r  {name}: frame {f}   ");
+                }
+            })?;
+            eprintln!();
+            println!(
+                "{} project(s) -> {}: train {} images / {} heads, valid {} / {}, test {} / {}",
+                s.projects,
+                out.display(),
+                s.images[0],
+                s.boxes[0],
+                s.images[1],
+                s.boxes[1],
+                s.images[2],
+                s.boxes[2]
+            );
+            println!("contains UN-anonymized frames: keep it local");
+        }
+        Cmd::Update { check } => {
+            let current = env!("CARGO_PKG_VERSION");
+            match anon_update::check(current)? {
+                None => println!("reco-anonymize {current} is up to date"),
+                Some(r) if check => println!("update available: {} ({})", r.version, r.page),
+                Some(r) => {
+                    println!("installing {} …", r.version);
+                    let report = anon_update::install(&r, |done, total| {
+                        if let Some(t) = total {
+                            eprint!("\r  {} / {} KiB   ", done / 1024, t / 1024);
+                        }
+                    })?;
+                    eprintln!();
+                    println!(
+                        "updated to {} ({} file(s) replaced)",
+                        r.version, report.files
+                    );
+                }
+            }
         }
         Cmd::Render {
             project,

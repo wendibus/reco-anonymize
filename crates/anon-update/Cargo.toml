@@ -1,0 +1,30 @@
+[package]
+name = "anon-update"
+description = "Release check and verified self-update for reco-anonymize."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+ureq = { version = "3", features = ["json"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+log.workspace = true
+flate2 = "1"
+tar = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+tempfile = "3"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
