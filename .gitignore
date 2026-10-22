@@ -4,3 +4,5 @@
 .venv/
 models/*.onnx
 models/*.onnx.json
+.annotate.log
+.annotate.out
