@@ -41,6 +41,9 @@ enum Cmd {
         /// Discard an existing project that belongs to another file.
         #[arg(long)]
         fresh: bool,
+        /// Continue an interrupted analysis from its last checkpoint.
+        #[arg(long)]
+        resume: bool,
         /// Tile edge in source pixels (default: model input size).
         #[arg(long, default_value_t = 0)]
         tile: u32,
@@ -83,6 +86,28 @@ enum Cmd {
         no_people_expected: bool,
         #[arg(long)]
         note: Option<String>,
+    },
+    /// Re-detect on the rendered video and check every head is covered.
+    Audit {
+        project: PathBuf,
+        /// The rendered file to audit.
+        #[arg(short, long)]
+        output: PathBuf,
+        #[arg(long)]
+        model: PathBuf,
+        #[arg(long, default_value_t = 20)]
+        show: usize,
+    },
+    /// Acknowledge audit hits that are not leaks (requires a reason).
+    AuditAck {
+        project: PathBuf,
+        /// Frames to acknowledge; omit together with --all.
+        #[arg(long = "frame")]
+        frames: Vec<u64>,
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        reason: String,
     },
     /// Render the anonymized video.
     Render {
@@ -224,6 +249,7 @@ fn main() -> Result<()> {
             model,
             project,
             fresh,
+            resume,
             tile,
             overlap,
             no_flip,
@@ -258,13 +284,14 @@ fn main() -> Result<()> {
                     settings,
                     model_ref,
                     fresh,
+                    resume,
                 },
                 progress_line,
             )?;
             eprintln!();
             println!(
-                "frames {}  tracks {}  max persons/frame {}  flagged {}  errors {}",
-                s.frames, s.tracks, s.max_persons, s.flagged, s.errors
+                "frames {} (resumed at {})  tracks {}  max persons/frame {}  flagged {}  errors {}",
+                s.frames, s.resumed_from, s.tracks, s.max_persons, s.flagged, s.errors
             );
             println!(
                 "next: reco-anon render {} --preview, check it, then approve",
@@ -302,6 +329,11 @@ fn main() -> Result<()> {
                 for (f, why) in &s.flagged {
                     println!("  frame {f:>7}  {}", why.join(", "));
                 }
+                println!(
+                    "export        {} ({})",
+                    if s.export_clean { "CLEAN" } else { "not clean" },
+                    s.export_note
+                );
                 println!(
                     "approval      {}",
                     match (s.approved, s.approval_valid) {
@@ -367,6 +399,58 @@ fn main() -> Result<()> {
             }
             let hash = anon_pipeline::approve(&project_dir(&project), note, no_people_expected)?;
             println!("approved ({})", &hash[..16]);
+        }
+        Cmd::Audit {
+            project,
+            output,
+            model,
+            show,
+        } => {
+            let dir = project_dir(&project);
+            let (model, model_ref) = load_model(&model)?;
+            eprintln!("auditing {}", output.display());
+            let r = anon_pipeline::audit(&dir, &output, Box::new(model), &model_ref.sha256, |n| {
+                progress_line(n, None)
+            })?;
+            eprintln!();
+            for h in r.hits.iter().take(show) {
+                println!(
+                    "  frame {:>7}  head {:?}  coverage {:.0}%  score {:.2}",
+                    h.frame,
+                    h.head.map(|v| v.round() as i32),
+                    h.coverage * 100.0,
+                    h.score
+                );
+            }
+            if r.passed() {
+                println!("audit PASSED: {} frames, no uncovered head found", r.frames);
+            } else {
+                println!(
+                    "audit FAILED: {} uncovered head(s) in {} frames. Fix the masks (zones, re-analysis) \
+                     or acknowledge reviewed false hits with `audit-ack`",
+                    r.open_hits(),
+                    r.frames
+                );
+                std::process::exit(2);
+            }
+        }
+        Cmd::AuditAck {
+            project,
+            frames,
+            all,
+            reason,
+        } => {
+            if frames.is_empty() && !all {
+                bail!("give --frame N (repeatable) or --all");
+            }
+            let dir = project_dir(&project);
+            let sel = (!all).then_some(frames.as_slice());
+            let n = anon_pipeline::acknowledge(&dir, sel, &reason)?;
+            let (clean, note) = anon_pipeline::export_clean(&dir)?;
+            println!(
+                "{n} hit(s) acknowledged; export {}: {note}",
+                if clean { "CLEAN" } else { "NOT clean" }
+            );
         }
         Cmd::Render {
             project,

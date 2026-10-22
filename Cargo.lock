@@ -89,14 +89,24 @@ dependencies = [
  "anon-io",
  "anon-model",
  "anon-render",
+ "anon-track",
+ "hex",
  "log",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror",
 ]
 
 [[package]]
 name = "anon-render"
+version = "0.1.0"
+dependencies = [
+ "anon-model",
+]
+
+[[package]]
+name = "anon-track"
 version = "0.1.0"
 dependencies = [
  "anon-model",

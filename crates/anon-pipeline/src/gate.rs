@@ -37,6 +37,9 @@ pub struct Status {
     pub zones: usize,
     pub approved: bool,
     pub approval_valid: bool,
+    /// Rendered output audited with no open hits, file unchanged since.
+    pub export_clean: bool,
+    pub export_note: String,
 }
 
 pub fn status(dir: &ProjectDir, max_flags: usize) -> Result<Status, PipelineError> {
@@ -46,6 +49,7 @@ pub fn status(dir: &ProjectDir, max_flags: usize) -> Result<Status, PipelineErro
     let source_matches =
         anon_io::fingerprint(&p.source.path).is_ok_and(|f| f == p.source.fingerprint);
     let hash = approval_hash(&p.source.fingerprint, &tracks, &p.zones, &frames);
+    let (export_clean, export_note) = crate::audit::export_clean(dir)?;
     Ok(Status {
         source: p.source.path.clone(),
         source_matches,
@@ -69,6 +73,8 @@ pub fn status(dir: &ProjectDir, max_flags: usize) -> Result<Status, PipelineErro
         approved: p.review.approved,
         approval_valid: p.review.approved
             && p.review.approved_hash.as_deref() == Some(hash.as_str()),
+        export_clean,
+        export_note,
     })
 }
 
@@ -271,6 +277,10 @@ pub fn render(
         )));
     }
     std::fs::rename(&tmp, &out)?;
+    if !opts.preview {
+        // a new export needs a new audit
+        let _ = std::fs::remove_file(dir.path("audit-report.json"));
+    }
 
     let summary = RenderSummary {
         output: out,

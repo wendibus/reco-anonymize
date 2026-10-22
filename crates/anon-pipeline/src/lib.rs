@@ -1,11 +1,12 @@
 //! Orchestration: analyze → review gate → render → verify.
 
 pub mod analyze;
+pub mod audit;
 pub mod gate;
-pub mod link;
 
 pub use PipelineError as Error;
 pub use analyze::{AnalyzeOptions, AnalyzeSummary, analyze};
+pub use audit::{AuditHit, AuditReport, acknowledge, audit, export_clean};
 pub use gate::{RenderOptions, RenderSummary, Status, approve, render, status};
 
 #[derive(Debug, thiserror::Error)]

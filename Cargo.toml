@@ -4,6 +4,7 @@ members = [
     "crates/anon-model",
     "crates/anon-detect",
     "crates/anon-render",
+    "crates/anon-track",
     "crates/anon-io",
     "crates/anon-pipeline",
     "crates/anon-cli",
@@ -20,6 +21,7 @@ repository = "https://github.com/wendibus/reco-anonymize"
 anon-model = { path = "crates/anon-model" }
 anon-detect = { path = "crates/anon-detect", default-features = false }
 anon-render = { path = "crates/anon-render" }
+anon-track = { path = "crates/anon-track" }
 anon-io = { path = "crates/anon-io" }
 anon-pipeline = { path = "crates/anon-pipeline" }
 

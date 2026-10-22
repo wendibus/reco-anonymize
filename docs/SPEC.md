@@ -1,6 +1,6 @@
 # reco-anonymize — Specification (Step 2: crates, APIs, data model)
 
-Status: v0.3, M1 implemented (see §12–13) · License: AGPL-3.0-only (links reco crates) · Target: macOS M4 Pro first, Linux/Windows via reco's backends
+Status: v0.4, M1 + M2 implemented (see §12–14) · License: AGPL-3.0-only (links reco crates) · Target: macOS M4 Pro first, Linux/Windows via reco's backends
 
 ## 1. Goals and non-goals
 
@@ -249,4 +249,30 @@ Changes vs. v0.2, all in the fail-closed direction:
 - **Model manifest required:** `<model>.onnx.json` with sha256, licence and person class; unknown hashes are refused.
 - **Rotation:** detection runs on the display-oriented image, masks are mapped back; rotation metadata is preserved.
 - **pts mismatch between analysis and render** paints the frame fully opaque and fails verification.
-- M1 uses a lightweight linker (greedy IoU + gap bridging). The bidirectional ByteTrack-style tracker remains M2.
+- M1 used a lightweight linker; replaced by the M2 tracker (§14).
+
+
+## 14. M2 status (implemented)
+
+**`anon-track`: bidirectional tracker**
+- Per-axis constant-velocity Kalman filter on (cx, cy, w, h), noise scaled by head height.
+- ByteTrack-style two-stage association: high-score detections (≥ 0.5) against tracked and lost tracks, then low-score detections against tracks seen in the previous frame.
+- Deviation from ByteTrack, for recall: unmatched low-score detections also start tracks. Every detection ends up masked.
+- Forward and backward passes are run separately. A backward track that bridges several forward fragments merges them (union-find).
+- A merge is refused if it would put two detections of the same frame into one track, i.e. two people.
+- Keyframes: the ellipse grows with speed (`r += |v|`, against motion blur). Velocity-extrapolated keyframes are added `dilation_frames` before the first and after the last observation.
+- Gaps up to `gap_fill_frames` are bridged by interpolation. Bridged spans longer than 10 frames are flagged.
+
+**Resumable analysis**
+- Checkpoint every 250 frames: `checkpoint.json` (source fingerprint, settings hash, frames done), partial `frames.bin`, flushed `detections.jsonl`.
+- `--resume` re-decodes the clip and skips inference for checkpointed frames, after checking that their pts match.
+- Detections before the checkpoint come from the log, so tracks span the interruption.
+
+**Audit (§8.5)**
+- `audit` decodes the rendered file and runs the detector at threshold 0.10.
+- A head counts as covered if ≥ 95 % of its box, or of the band above the person (masked heads may fall out of the silhouette), is fill-black in the output pixels.
+- The check is independent of tracks and resolver, so it also catches tracking, resolving and painting bugs.
+- Hits are written to `audit-report.json` and can be acknowledged with a mandatory reason.
+- `status` reports the export as clean only when the audited file is unchanged since the audit and no hit is open. A new render deletes the previous audit.
+
+**Tests:** 7 tracker tests, including forward fragmentation healed by the backward pass. E2E tests cover a clean audit passing, a deliberately suppressed track producing 50 audit hits, and a simulated crash at frame 270 resuming from 250 with only 50 frames re-inferred.

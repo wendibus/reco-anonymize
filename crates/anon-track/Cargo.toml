@@ -1,0 +1,13 @@
+[package]
+name = "anon-track"
+description = "Offline bidirectional head tracker: Kalman prediction, two-stage association, gap fill, extrapolation."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anon-model.workspace = true
+
+[lints]
+workspace = true

@@ -21,7 +21,14 @@ reco-anon zone add game.mp4 --label stands --points "0,0 5760,0 5760,380 0,420"
 reco-anon render  game.mp4 --preview                                # game.mp4.anon/preview.mp4
 reco-anon approve game.mp4 --i-reviewed-the-preview
 reco-anon render  game.mp4 -o game-anon.mp4                         # gated, verified
+reco-anon audit   game.mp4 -o game-anon.mp4 --model models/rfdetr-seg-medium.onnx
+reco-anon status  game.mp4                                          # export CLEAN?
 ```
+
+- Long analyses checkpoint every 250 frames; after a crash continue with `analyze … --resume`.
+- `audit` re-runs detection on the rendered file and checks from the output pixels that every
+  head it finds is covered. Hits must be fixed or acknowledged with a reason (`audit-ack`)
+  before `status` reports the export as clean. A new render voids the previous audit.
 
 - `render` refuses without a valid approval. Any change to tracks or zones voids it.
 - Frames that were not analysed, errored, or whose timestamp differs at render time are painted
@@ -61,9 +68,10 @@ On machines where the ONNX Runtime binaries cannot be downloaded at build time, 
 |---|---|
 | `anon-model` | project files, tracks, zones, frame table, approval hash, mask resolver |
 | `anon-detect` | tiling, flip + full-frame passes, fusion, head derivation, RF-DETR backend |
+| `anon-track` | bidirectional Kalman/ByteTrack tracker, gap bridging, extrapolation, motion padding |
 | `anon-render` | conservative span rasterizer, opaque fill in planar YUV (8/10-bit, 4:2:0/4:2:2/4:4:4) |
 | `anon-io` | probe, fingerprint, decode, VFR-safe re-encode, audio stream copy, metadata strip |
-| `anon-pipeline` | analyze, link, flags, review gate, render, verification |
+| `anon-pipeline` | analyze (resumable), flags, review gate, render, verification, audit |
 | `anon-cli` | `reco-anon` |
 
 Milestones and design: [`docs/SPEC.md`](docs/SPEC.md).
