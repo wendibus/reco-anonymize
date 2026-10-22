@@ -324,6 +324,16 @@ pub fn transcode(
     // --- video encoder ---------------------------------------------------
     let in_st = ictx.stream(vin).expect("video stream");
     let in_par = in_st.parameters();
+    // SAFETY: plain enum field reads of valid parameters.
+    let src_color = unsafe {
+        let p = in_par.as_ptr();
+        (
+            (*p).color_primaries,
+            (*p).color_trc,
+            (*p).color_space,
+            (*p).color_range,
+        )
+    };
     let avg_fps = in_st.avg_frame_rate();
     let mut enc = codec::context::Context::new_with_codec(codec)
         .encoder()
@@ -364,6 +374,13 @@ pub fn transcode(
                 0
             };
             copy_display_matrix(in_par.as_ptr(), par);
+            // colour description on the stream itself (muxers read it here)
+            let ip = in_par.as_ptr();
+            (*par).color_primaries = (*ip).color_primaries;
+            (*par).color_trc = (*ip).color_trc;
+            (*par).color_space = (*ip).color_space;
+            (*par).color_range = (*ip).color_range;
+            (*par).chroma_location = (*ip).chroma_location;
         }
         ost.index()
     };
@@ -475,6 +492,24 @@ pub fn transcode(
         };
         out.set_pts(Some(pts));
         out.set_kind(ff::picture::Type::None);
+        // newer encoders take the colour description from the frame:
+        // fill it from the stream when the decoder left it unspecified
+        // SAFETY: plain enum field reads/writes on a valid frame.
+        unsafe {
+            let f = out.as_mut_ptr();
+            if (*f).color_primaries == ffi::AVColorPrimaries::AVCOL_PRI_UNSPECIFIED {
+                (*f).color_primaries = src_color.0;
+            }
+            if (*f).color_trc == ffi::AVColorTransferCharacteristic::AVCOL_TRC_UNSPECIFIED {
+                (*f).color_trc = src_color.1;
+            }
+            if (*f).colorspace == ffi::AVColorSpace::AVCOL_SPC_UNSPECIFIED {
+                (*f).colorspace = src_color.2;
+            }
+            if (*f).color_range == ffi::AVColorRange::AVCOL_RANGE_UNSPECIFIED {
+                (*f).color_range = src_color.3;
+            }
+        }
         enc.send_frame(&out)?;
         report.pts.push(pts);
         report.frames += 1;

@@ -175,7 +175,20 @@ fn keeps_timing_audio_colour_and_strips_metadata() {
             "csv=p=0",
         ],
     );
-    assert_eq!(col.trim(), "bt709,bt709,bt709");
+    let src_col = ffprobe(
+        &src,
+        &[
+            "-select_streams",
+            "v",
+            "-show_entries",
+            "stream=color_primaries,color_transfer,color_space",
+            "-of",
+            "csv=p=0",
+        ],
+    );
+    // whatever the source declares must survive (bt709 where the ffmpeg
+    // CLI used for the fixture writes the tags)
+    assert_eq!(col.trim(), src_col.trim(), "colour description changed");
 
     // identifying container metadata gone
     let tags = ffprobe(
