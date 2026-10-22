@@ -1,0 +1,13 @@
+[package]
+name = "anon-render"
+description = "Rasterize mask shapes and paint them opaque into planar YUV frames."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anon-model.workspace = true
+
+[lints]
+workspace = true

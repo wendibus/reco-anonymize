@@ -1,0 +1,21 @@
+[package]
+name = "anon-io"
+description = "FFmpeg I/O for reco-anonymize: probe, decode, VFR-safe re-encode with stream-copied audio."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anon-model.workspace = true
+anon-render.workspace = true
+anon-detect.workspace = true
+ffmpeg-next.workspace = true
+sha2.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+log.workspace = true
+
+[lints]
+workspace = true
+[dev-dependencies]

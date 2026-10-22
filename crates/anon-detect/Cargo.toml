@@ -1,0 +1,28 @@
+[package]
+name = "anon-detect"
+description = "Person segmentation, tiled multi-pass inference, fusion and head derivation."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anon-model.workspace = true
+thiserror.workspace = true
+log.workspace = true
+serde.workspace = true
+ort = { workspace = true, optional = true }
+reco-detect = { workspace = true, optional = true }
+
+[features]
+default = ["ort"]
+# ONNX Runtime backend for RF-DETR-Seg, session built by reco-detect
+# (same execution-provider selection as the reco engine).
+ort = ["dep:ort", "dep:reco-detect", "reco-detect/ort"]
+coreml = ["ort", "reco-detect/coreml"]
+cuda = ["ort", "reco-detect/cuda"]
+# Load libonnxruntime at runtime (ORT_DYLIB_PATH) instead of linking it.
+load-dynamic = ["ort", "reco-detect/load-dynamic"]
+
+[lints]
+workspace = true

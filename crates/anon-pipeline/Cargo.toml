@@ -1,0 +1,20 @@
+[package]
+name = "anon-pipeline"
+description = "reco-anonymize orchestration: analyze, review gate, render, verification."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anon-model.workspace = true
+anon-detect.workspace = true
+anon-render.workspace = true
+anon-io.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+log.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,50 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/anon-model",
+    "crates/anon-detect",
+    "crates/anon-render",
+    "crates/anon-io",
+    "crates/anon-pipeline",
+    "crates/anon-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+license = "AGPL-3.0-only"
+repository = "https://github.com/wendibus/reco-anonymize"
+
+[workspace.dependencies]
+anon-model = { path = "crates/anon-model" }
+anon-detect = { path = "crates/anon-detect", default-features = false }
+anon-render = { path = "crates/anon-render" }
+anon-io = { path = "crates/anon-io" }
+anon-pipeline = { path = "crates/anon-pipeline" }
+
+# reco engine, pinned to a reviewed commit. Only reco-detect is linked in M1
+# (ORT session factory with CoreML/CUDA/TensorRT execution providers).
+reco-detect = { git = "https://github.com/reco-project/video-stitcher", rev = "cd3bf434b92c678a5585cd9be2330eda49782a8a", default-features = false }
+
+ffmpeg-next = { version = "8", default-features = false, features = ["codec", "format", "software-scaling"] }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+thiserror = "2"
+log = "0.4"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+env_logger = "0.11"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+strip = true
+lto = "thin"
+
+[profile.dev.package."*"]
+opt-level = 2
