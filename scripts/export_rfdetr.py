@@ -5,6 +5,10 @@ write the manifest (<model>.onnx.json) the CLI requires.
     python3 -m venv .venv && . .venv/bin/activate
     pip install "rfdetr>=1.3" onnx onnxsim
     python scripts/export_rfdetr.py --size medium --out models/rfdetr-seg-medium.onnx
+    python scripts/export_rfdetr.py --task det --size small --out models/rfdetr-det-small.onnx
+
+`--task det` exports a detection-only model (boxes, no masks): heads are then
+derived from the top of each person box. Much faster, see README.
 
 Only the Apache-2.0 sizes are allowed here (nano/small/medium/large).
 RF-DETR XL/2XL and the `rfdetr_plus` models use a different licence.
@@ -19,30 +23,39 @@ import sys
 import tempfile
 
 APACHE_SIZES = {
-    "nano": ["RFDETRSegNano"],
-    "small": ["RFDETRSegSmall"],
-    "medium": ["RFDETRSegMedium", "RFDETRSegPreview"],
-    "large": ["RFDETRSegLarge"],
+    "seg": {
+        "nano": ["RFDETRSegNano"],
+        "small": ["RFDETRSegSmall"],
+        "medium": ["RFDETRSegMedium", "RFDETRSegPreview"],
+        "large": ["RFDETRSegLarge"],
+    },
+    "det": {
+        "nano": ["RFDETRNano"],
+        "small": ["RFDETRSmall"],
+        "medium": ["RFDETRMedium"],
+        "large": ["RFDETRLarge"],
+    },
 }
 
 
-def load_class(size):
+def load_class(task, size):
     import rfdetr
 
-    for name in APACHE_SIZES[size]:
+    for name in APACHE_SIZES[task][size]:
         cls = getattr(rfdetr, name, None)
         if cls is not None:
             return name, cls
-    sys.exit(f"rfdetr {getattr(rfdetr, '__version__', '?')} has none of {APACHE_SIZES[size]}; upgrade rfdetr")
+    sys.exit(f"rfdetr {getattr(rfdetr, '__version__', '?')} has none of {APACHE_SIZES[task][size]}; upgrade rfdetr")
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--size", choices=sorted(APACHE_SIZES), default="medium")
+    ap.add_argument("--task", choices=sorted(APACHE_SIZES), default="seg")
+    ap.add_argument("--size", choices=sorted(APACHE_SIZES["seg"]), default="medium")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
-    name, cls = load_class(args.size)
+    name, cls = load_class(args.task, args.size)
     model = cls()
     tmp = tempfile.mkdtemp()
     model.export(output_dir=tmp)
@@ -59,7 +72,7 @@ def main():
     ins = [(i.name, [d.dim_value for d in i.type.tensor_type.shape.dim]) for i in m.graph.input]
     print("inputs :", ins)
     print("outputs:", outs)
-    if not any(len(s) == 4 for _, s in outs):
+    if args.task == "seg" and not any(len(s) == 4 for _, s in outs):
         print("WARNING: no mask output found; heads will be derived from boxes only")
 
     sha = hashlib.sha256(open(args.out, "rb").read()).hexdigest()
@@ -67,7 +80,7 @@ def main():
         "id": f"rfdetr-{name}",
         "sha256": sha,
         "license": "Apache-2.0 (code and COCO weights, roboflow/rf-detr)",
-        "kind": "person-seg",
+        "kind": "person-seg" if args.task == "seg" else "person-det",
         # RF-DETR COCO checkpoints index logits by COCO category id: person = 1
         "person_class": 1,
         "source": f"rfdetr.{name} via model.export()",

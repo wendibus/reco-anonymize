@@ -223,6 +223,13 @@ pub fn analyze(
         head_expand: settings.head_expand,
     };
     let mut analyzer = Analyzer::new(model, cfg);
+    let step = u64::from(settings.detect_every);
+    if step == 0 || step > u64::from(settings.dilation_frames) + 1 {
+        return Err(PipelineError::Refused(format!(
+            "detecting every {step} frames needs 1..={} (dilation + 1), otherwise a track can end unmasked",
+            settings.dilation_frames + 1
+        )));
+    }
     let rot = probe.rotation_deg;
     let (w, h) = (probe.width as f32, probe.height as f32);
     let (dw, dh) = if rot % 180 == 0 { (w, h) } else { (h, w) };
@@ -275,23 +282,24 @@ pub fn analyze(
         let mut rec = FrameRecord::missing(pts);
         let mut fdets = FrameDets::default();
         let mut tdets = FrameDets::default();
-        let result = rgb
-            .convert(&frame)
-            .map_err(|e| e.to_string())
-            .and_then(|img| {
-                let shown = img.rotate_cw(rot);
-                let det = analyzer.analyze(&shown).map_err(|e| e.to_string())?;
-                let text = match text_detector.as_mut() {
-                    Some(t) => {
-                        let persons: Vec<BBox> = det.heads.iter().map(|h| h.person).collect();
-                        t.detect(&shown, &persons).map_err(|e| e.to_string())?
-                    }
-                    None => Vec::new(),
-                };
-                Ok((det, text))
-            });
+        let result = index.is_multiple_of(step).then(|| {
+            rgb.convert(&frame)
+                .map_err(|e| e.to_string())
+                .and_then(|img| {
+                    let shown = img.rotate_cw(rot);
+                    let det = analyzer.analyze(&shown).map_err(|e| e.to_string())?;
+                    let text = match text_detector.as_mut() {
+                        Some(t) => {
+                            let persons: Vec<BBox> = det.heads.iter().map(|h| h.person).collect();
+                            t.detect(&shown, &persons).map_err(|e| e.to_string())?
+                        }
+                        None => Vec::new(),
+                    };
+                    Ok((det, text))
+                })
+        });
         match result {
-            Ok((det, text)) => {
+            Some(Ok((det, text))) => {
                 for tb in &text {
                     let b = unrotate_box(&tb.bbox, rot, dw, dh);
                     let line = DetLine {
@@ -344,10 +352,16 @@ pub fn analyze(
                     fdets.dets.push(det_of(&line));
                 }
             }
-            Err(e) => {
+            Some(Err(e)) => {
                 log::error!("frame {index}: {e}");
                 rec.status = FrameStatus::Error;
                 rec.flags |= flag::ERROR;
+            }
+            None => {
+                // between detected frames: no detections, the tracker bridges
+                // the gap (step <= dilation + 1 covers a track ending here)
+                rec.status = FrameStatus::Analyzed;
+                rec.persons = prev_persons;
             }
         }
         frames.records.push(rec);

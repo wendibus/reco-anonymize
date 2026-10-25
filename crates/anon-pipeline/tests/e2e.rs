@@ -579,3 +579,82 @@ fn exports_reviewed_head_labels_as_coco() {
     assert!(out.join("README.txt").exists());
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Detector on every 2nd frame only: the frames in between must still be
+/// masked (tracker interpolation), and steps the dilation cannot cover are
+/// refused.
+#[test]
+fn detecting_every_other_frame_still_masks_every_frame() {
+    if !have("ffmpeg") || !have("ffprobe") {
+        eprintln!("skipped: ffmpeg/ffprobe not installed");
+        return;
+    }
+    let dir: PathBuf = std::env::temp_dir().join(format!("anon-e2e-step-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("game.mp4");
+    let st = Command::new("ffmpeg")
+        .args(["-v", "error", "-y"])
+        .args([
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=0x606060:size=320x240:rate=25:duration=2",
+        ])
+        .args([
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:size=20x80:rate=25:duration=2",
+        ])
+        .args(["-filter_complex", "[0:v][1:v]overlay=x='20+t*60':y=80"])
+        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
+        .arg(&src)
+        .status()
+        .unwrap();
+    assert!(st.success());
+    let proj = ProjectDir::for_source(&src);
+
+    let mut o = opts();
+    o.settings.detect_every = 5;
+    assert!(matches!(
+        analyze(&src, &proj, Box::new(RedFinder), o, |_, _| {}),
+        Err(PipelineError::Refused(_))
+    ));
+
+    let mut o = opts();
+    o.settings.detect_every = 2;
+    let s = analyze(&src, &proj, Box::new(RedFinder), o, |_, _| {}).unwrap();
+    assert_eq!((s.frames, s.errors, s.tracks), (50, 0, 1));
+    let log = std::fs::read_to_string(proj.path("detections.jsonl")).unwrap();
+    assert!(!log.is_empty());
+    assert!(
+        log.lines().all(|l| {
+            let v: serde_json::Value = serde_json::from_str(l).unwrap();
+            v["frame"].as_u64().unwrap().is_multiple_of(2)
+        }),
+        "detector ran on an odd frame"
+    );
+
+    approve(&proj, None, false).unwrap();
+    let out = dir.join("anon.mp4");
+    let ro = RenderOptions {
+        encode: EncodeSettings {
+            codec: Codec::H264,
+            encoder: Some("libx264".into()),
+            quality: 80,
+        },
+        preview: false,
+    };
+    let r = render(&proj, &out, &ro).unwrap();
+    assert_eq!(r.fully_opaque_frames, 0);
+    for frame in [1u32, 25, 49] {
+        let t = frame as f32 / 25.0;
+        let x = (20.0 + t * 60.0) as u32 + 10;
+        let head = rgb_at(&out, x, 84, frame);
+        assert!(
+            head.iter().all(|&c| c < 40),
+            "frame {frame}: head not masked {head:?}"
+        );
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}

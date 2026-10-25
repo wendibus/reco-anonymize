@@ -27,7 +27,7 @@ default = ["ort"]
 # ONNX Runtime backend for RF-DETR-Seg, session built by reco-detect
 # (same execution-provider selection as the reco engine).
 ort = ["dep:ort", "dep:reco-detect", "reco-detect/ort", "dep:serde_json", "dep:sha2", "dep:hex"]
-coreml = ["ort", "reco-detect/coreml"]
+coreml = ["ort", "ort/coreml", "reco-detect/coreml"]
 cuda = ["ort", "reco-detect/cuda"]
 # Load libonnxruntime at runtime (ORT_DYLIB_PATH) instead of linking it.
 load-dynamic = ["ort", "reco-detect/load-dynamic"]

@@ -92,6 +92,17 @@ fn now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
+/// First frame of a video that has no project yet, so the app can show what
+/// is about to be analysed.
+pub fn preview_frame(video: &Path) -> Result<Rgba, ReviewError> {
+    anon_io::init()?;
+    let mut reader = anon_io::FrameReader::open(video)?;
+    let (f, _) = reader
+        .next_frame()?
+        .ok_or_else(|| ReviewError::Refused(format!("{}: no video frame", video.display())))?;
+    Ok(Rgba::from_rgb(&RgbConverter::default().convert(&f)?))
+}
+
 pub struct ReviewSession {
     pub dir: ProjectDir,
     pub project: Project,

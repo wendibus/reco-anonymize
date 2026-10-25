@@ -144,6 +144,15 @@ msgstr "Zonen (immer maskiert)"
 msgid "auto"
 msgstr "auto"
 
+msgid "every 2nd frame"
+msgstr "jedes 2. Frame"
+
+msgid "every 3rd frame"
+msgstr "jedes 3. Frame"
+
+msgid "every frame"
+msgstr "jedes Frame"
+
 msgid "manual"
 msgstr "manuell"
 

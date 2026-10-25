@@ -1,8 +1,9 @@
 //! RF-DETR(-Seg) backend on ONNX Runtime.
 //!
-//! The session is built by `reco_detect::create_ort_session`, so execution
-//! provider selection (CoreML / CUDA / TensorRT / CPU) matches the reco
-//! engine exactly.
+//! On macOS the session uses CoreML in the MLProgram format (see
+//! `create_session`); elsewhere it is built by `reco_detect::create_ort_session`,
+//! so execution provider selection (CUDA / TensorRT / DirectML / CPU) matches
+//! the reco engine.
 //!
 //! Expected ONNX contract (as produced by `rfdetr`'s `model.export()`):
 //!
@@ -54,12 +55,64 @@ fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }
 
+/// CoreML in the MLProgram format, on the GPU. reco-detect's session uses the
+/// older NeuralNetwork format, which splits RF-DETR into ~100 CoreML/CPU
+/// partitions and on Apple silicon is slower than the CPU alone (M4 Pro,
+/// seg-medium at 432: NeuralNetwork 364 ms, CPU 115 ms, MLProgram 42 ms). The
+/// Neural Engine was 2-3x slower than the GPU for every RF-DETR size.
+#[cfg(feature = "coreml")]
+fn create_session(path: &Path) -> Result<(Session, u32), DetectError> {
+    use ort::ep::coreml::{ComputeUnits, ModelFormat};
+    use ort::session::builder::GraphOptimizationLevel;
+
+    reco_detect::ort_session::ort_runtime_available().map_err(DetectError::Model)?;
+    let cache = reco_detect::ort_session::reco_cache_dir("coreml-mlprogram-cache");
+    let builder = Session::builder()
+        .map_err(err)?
+        .with_optimization_level(GraphOptimizationLevel::Level3)
+        .map_err(err)?;
+    let mut builder = match builder.with_execution_providers([ort::ep::CoreML::default()
+        .with_model_format(ModelFormat::MLProgram)
+        .with_compute_units(ComputeUnits::CPUAndGPU)
+        .with_static_input_shapes(true)
+        .with_model_cache_dir(cache.to_string_lossy())
+        .build()])
+    {
+        Ok(b) => {
+            log::info!("ORT: CoreML (MLProgram, GPU) execution provider enabled");
+            b
+        }
+        Err(e) => {
+            log::warn!("ORT: CoreML EP failed ({e}), falling back to CPU");
+            e.recover()
+        }
+    };
+    let session = builder.commit_from_file(path).map_err(err)?;
+    let size = match session.inputs()[0].dtype() {
+        ort::value::ValueType::Tensor { shape, .. } if shape.len() == 4 && shape[2] > 0 => {
+            shape[2] as u32
+        }
+        _ => {
+            return Err(DetectError::Model(
+                "model input must be [1, 3, S, S] with a fixed S".into(),
+            ));
+        }
+    };
+    Ok((session, size))
+}
+
+#[cfg(not(feature = "coreml"))]
+fn create_session(path: &Path) -> Result<(Session, u32), DetectError> {
+    let (session, size, _labels) =
+        reco_detect::create_ort_session(path, vec!["person".into()]).map_err(err)?;
+    Ok((session, size))
+}
+
 impl RfDetrSeg {
     /// Load a model. `person_class` is the index of "person" in the logits
     /// (1 for RF-DETR COCO checkpoints, which use COCO category ids).
     pub fn load(path: &Path, person_class: usize) -> Result<Self, DetectError> {
-        let (session, size, _labels) =
-            reco_detect::create_ort_session(path, vec!["person".into()]).map_err(err)?;
+        let (session, size) = create_session(path)?;
         let names = Self::resolve_outputs(&session)?;
         log::info!(
             "RF-DETR loaded: input {size}x{size}, outputs {:?}, person class {person_class}",
@@ -249,7 +302,7 @@ pub struct ModelManifest {
     pub id: String,
     pub sha256: String,
     pub license: String,
-    /// "person-seg" (default) or "text-db".
+    /// "person-seg" (default), "person-det" (boxes only) or "text-db".
     #[serde(default = "default_kind")]
     pub kind: String,
     #[serde(default = "default_person_class")]
@@ -264,10 +317,11 @@ fn default_person_class() -> usize {
     1
 }
 
-/// Read the manifest, check the model file's sha256 and kind.
+/// Read the manifest, check the model file's sha256 and that its kind is one
+/// of `kinds`.
 pub fn verify_manifest(
     path: &Path,
-    kind: &str,
+    kinds: &[&str],
 ) -> Result<(ModelManifest, anon_model::ModelRef), DetectError> {
     use sha2::{Digest, Sha256};
     let mut mp = path.as_os_str().to_owned();
@@ -277,11 +331,12 @@ pub fn verify_manifest(
         .map_err(|e| DetectError::Model(format!("model manifest {} missing: {e}", mp.display())))?;
     let manifest: ModelManifest = serde_json::from_slice(&bytes)
         .map_err(|e| DetectError::Model(format!("invalid model manifest: {e}")))?;
-    if manifest.kind != kind {
+    if !kinds.contains(&manifest.kind.as_str()) {
         return Err(DetectError::Model(format!(
-            "{} is a '{}' model, expected '{kind}'",
+            "{} is a '{}' model, expected '{}'",
             path.display(),
-            manifest.kind
+            manifest.kind,
+            kinds.join("' or '")
         )));
     }
     let model_bytes = std::fs::read(path)
@@ -301,8 +356,9 @@ pub fn verify_manifest(
     Ok((manifest, r))
 }
 
-/// Load a person segmentation model only if its sha256 matches its manifest.
+/// Load a person model (segmentation, or detection-only with box-based head
+/// derivation) only if its sha256 matches its manifest.
 pub fn load_verified(path: &Path) -> Result<(RfDetrSeg, anon_model::ModelRef), DetectError> {
-    let (manifest, r) = verify_manifest(path, "person-seg")?;
+    let (manifest, r) = verify_manifest(path, &["person-seg", "person-det"])?;
     Ok((RfDetrSeg::load(path, manifest.person_class)?, r))
 }

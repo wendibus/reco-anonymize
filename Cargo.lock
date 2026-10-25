@@ -206,7 +206,7 @@ dependencies = [
 
 [[package]]
 name = "anon-cli"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anon-detect",
  "anon-io",
@@ -222,7 +222,7 @@ dependencies = [
 
 [[package]]
 name = "anon-detect"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anon-model",
  "hex",
@@ -237,7 +237,7 @@ dependencies = [
 
 [[package]]
 name = "anon-gui"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anon-detect",
  "anon-io",
@@ -261,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "anon-io"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anon-detect",
  "anon-model",
@@ -275,7 +275,7 @@ dependencies = [
 
 [[package]]
 name = "anon-model"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "hex",
  "serde",
@@ -286,7 +286,7 @@ dependencies = [
 
 [[package]]
 name = "anon-pipeline"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anon-detect",
  "anon-io",
@@ -304,14 +304,14 @@ dependencies = [
 
 [[package]]
 name = "anon-render"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anon-model",
 ]
 
 [[package]]
 name = "anon-review"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anon-detect",
  "anon-io",
@@ -325,14 +325,14 @@ dependencies = [
 
 [[package]]
 name = "anon-track"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anon-model",
 ]
 
 [[package]]
 name = "anon-update"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "flate2",
  "hex",

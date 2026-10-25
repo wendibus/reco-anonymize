@@ -56,7 +56,21 @@ reco-anon status  game.mp4                                          # export CLE
 - Speed: every tile is also run mirrored by default (`--no-flip` halves the work). For a camera
   looking down a field, `--coarse-below 0.45` tiles the lower part of the frame, where people
   are near and large, with tiles twice the size (*Near camera from* in the app); distant
-  people above keep native-resolution tiles.
+  people above keep native-resolution tiles. `--detect-every 2` runs the detector on every
+  second frame and lets the tracker fill the frames in between (at most dilation + 1).
+
+  Measured on a 4096×1152 soccer panorama (M4 Pro, seg-medium, 30 frames), coverage = share of
+  the confident heads (score ≥ 0.5) of a full analysis that end up ≥ 95 % masked in the render:
+
+  | settings | s/frame | coverage |
+  |---|---|---|
+  | defaults | 4.8 | 100 % (reference) |
+  | `--coarse-below 0.45` | 2.6 | 99.7 % |
+  | `--coarse-below 0.45 --detect-every 2` (recommended for panoramas) | 1.3 | 99.1 % |
+  | `--coarse-below 0.45 --no-flip --detect-every 2` | 0.7 | 96.9 % |
+
+  On macOS the model runs through CoreML in the MLProgram format on the GPU; versions before
+  0.6 used the NeuralNetwork format, which was about 9× slower (39 s/frame on that clip).
 - `audit` re-runs detection on the rendered file and checks from the output pixels that every
   head it finds is covered. Hits must be fixed or acknowledged with a reason (`audit-ack`)
   before `status` reports the export as clean. A new render voids the previous audit.
@@ -125,6 +139,11 @@ python scripts/export_rfdetr.py --size medium --out models/rfdetr-seg-medium.onn
 This writes `models/rfdetr-seg-medium.onnx.json` (sha256, licence, person class). `analyze`
 refuses models whose hash does not match their manifest. Only the Apache sizes (nano … large)
 are allowed; XL/2XL use a different licence.
+
+`--task det` exports a detection-only model (boxes, no masks; heads are then taken from the top
+of the person box). It is 2–4× faster, but on the clip above only about 75 % of the heads were
+fully covered, so it is not recommended until a dedicated head detector is trained (see
+*Training data for a head detector*).
 
 ## Build
 

@@ -111,6 +111,14 @@ pub struct AnalysisSettings {
     /// Every mask is extended this many frames before and after.
     pub dilation_frames: u32,
     pub mask_jersey_numbers: bool,
+    /// Run the detector on every n-th frame only; the tracker interpolates
+    /// the frames in between. `1` = every frame.
+    #[serde(default = "every_frame")]
+    pub detect_every: u32,
+}
+
+fn every_frame() -> u32 {
+    1
 }
 
 impl Default for AnalysisSettings {
@@ -124,6 +132,7 @@ impl Default for AnalysisSettings {
             gap_fill_frames: 30,
             dilation_frames: 3,
             mask_jersey_numbers: false,
+            detect_every: 1,
         }
     }
 }

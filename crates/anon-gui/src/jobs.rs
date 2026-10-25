@@ -23,6 +23,8 @@ pub enum Job {
         flip: bool,
         /// Perspective tiling from this fraction of the frame height down.
         coarse_below: Option<f32>,
+        /// Detect on every n-th frame, track in between.
+        detect_every: u32,
     },
     Preview {
         dir: ProjectDir,
@@ -168,6 +170,7 @@ fn run(job: Job, tx: &Sender<JobMsg>) -> Result<(String, bool, Option<PathBuf>),
             resume,
             flip,
             coarse_below,
+            detect_every,
         } => {
             let (m, model_ref) =
                 anon_detect::rfdetr::load_verified(&model).map_err(|e| e.to_string())?;
@@ -186,6 +189,7 @@ fn run(job: Job, tx: &Sender<JobMsg>) -> Result<(String, bool, Option<PathBuf>),
             settings.mask_jersey_numbers = text.is_some();
             settings.tile.flip_pass = flip;
             settings.tile.coarse_below = coarse_below;
+            settings.detect_every = detect_every;
             let s = anon_pipeline::analyze(
                 &src,
                 &dir,

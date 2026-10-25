@@ -61,7 +61,7 @@ impl TextMapModel for PpOcrDet {
 pub fn load_verified(
     path: &Path,
 ) -> Result<(DbTextDetector<PpOcrDet>, anon_model::ModelRef), DetectError> {
-    let (_, r) = verify_manifest(path, "text-db")?;
+    let (_, r) = verify_manifest(path, &["text-db"])?;
     Ok((
         DbTextDetector {
             model: PpOcrDet::load(path)?,

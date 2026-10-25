@@ -68,6 +68,10 @@ enum Cmd {
         dilation: u32,
         #[arg(long, default_value_t = 30)]
         gap: u32,
+        /// Run the detector on every n-th frame only (1..=dilation+1); the
+        /// tracker interpolates the frames in between.
+        #[arg(long, default_value_t = 1)]
+        detect_every: u32,
         /// Also mask jersey numbers / text on players with this PP-OCR det
         /// model (manifest kind "text-db", see scripts/fetch_ppocr.py).
         #[arg(long)]
@@ -267,6 +271,7 @@ fn main() -> Result<()> {
             head_expand,
             dilation,
             gap,
+            detect_every,
             text_model,
         } => {
             let dir = project.map_or_else(|| ProjectDir::for_source(&video), ProjectDir::open);
@@ -286,6 +291,7 @@ fn main() -> Result<()> {
                 gap_fill_frames: gap,
                 dilation_frames: dilation,
                 mask_jersey_numbers: text_model.is_some(),
+                detect_every,
                 ..AnalysisSettings::default()
             };
             eprintln!("analyzing {} -> {}", video.display(), dir.root.display());

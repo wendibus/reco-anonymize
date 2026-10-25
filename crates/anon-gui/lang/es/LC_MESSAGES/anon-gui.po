@@ -144,6 +144,15 @@ msgstr "Zonas (siempre enmascaradas)"
 msgid "auto"
 msgstr "auto"
 
+msgid "every 2nd frame"
+msgstr "cada 2.º fotograma"
+
+msgid "every 3rd frame"
+msgstr "cada 3.er fotograma"
+
+msgid "every frame"
+msgstr "cada fotograma"
+
 msgid "manual"
 msgstr "manual"
 
