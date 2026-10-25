@@ -4,6 +4,7 @@ pub mod analyze;
 pub mod audit;
 pub mod dataset;
 pub mod gate;
+pub mod progress;
 
 pub use PipelineError as Error;
 pub use analyze::{AnalyzeOptions, AnalyzeSummary, analyze};

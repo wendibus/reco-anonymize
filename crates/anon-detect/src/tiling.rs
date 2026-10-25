@@ -62,9 +62,92 @@ pub fn plan_tiles(width: u32, height: u32, tile: u32, overlap: f32) -> Vec<TileR
     out
 }
 
+/// A tile together with the tile edge it was planned for (its scale).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScaledTile {
+    pub rect: TileRect,
+    pub tile: u32,
+}
+
+/// [`plan_tiles`] over the horizontal band `y0..y1`, in image coordinates.
+fn plan_band(width: u32, y0: u32, y1: u32, tile: u32, overlap: f32) -> Vec<ScaledTile> {
+    plan_tiles(width, y1 - y0, tile, overlap)
+        .into_iter()
+        .map(|r| ScaledTile {
+            rect: TileRect { y: r.y + y0, ..r },
+            tile,
+        })
+        .collect()
+}
+
+/// Perspective tiling: `fine` tiles above row `split`, `coarse` tiles from
+/// there down. The bands overlap (the fine band reaches half a fine tile
+/// below `split`, the coarse band a quarter coarse tile above it) so a person
+/// standing on the border is seen whole by at least one of them. Without a
+/// usable `split` this is [`plan_tiles`] with `fine`.
+pub fn plan_perspective(
+    width: u32,
+    height: u32,
+    fine: u32,
+    coarse: u32,
+    split: Option<u32>,
+    overlap: f32,
+) -> Vec<ScaledTile> {
+    match split {
+        Some(s) if s > 0 && s < height && coarse > fine => {
+            let fine_end = (s + fine / 2).min(height);
+            let coarse_start = s.saturating_sub(coarse / 4);
+            let mut v = plan_band(width, 0, fine_end, fine, overlap);
+            v.extend(plan_band(width, coarse_start, height, coarse, overlap));
+            v
+        }
+        _ => plan_band(width, 0, height, fine, overlap),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn perspective_covers_every_pixel_with_fewer_tiles() {
+        let (w, h) = (4096, 1152);
+        let full = plan_tiles(w, h, 432, 0.25);
+        let tiles = plan_perspective(w, h, 432, 864, Some(518), 0.25);
+        assert!(
+            tiles.len() * 3 < full.len() * 2,
+            "{} vs {}",
+            tiles.len(),
+            full.len()
+        );
+        let mut covered = vec![false; (w * h) as usize];
+        for t in &tiles {
+            let r = t.rect;
+            assert!(r.x + r.w <= w && r.y + r.h <= h, "{r:?}");
+            for y in r.y..r.y + r.h {
+                for x in r.x..r.x + r.w {
+                    covered[(y * w + x) as usize] = true;
+                }
+            }
+        }
+        assert!(covered.iter().all(|&c| c));
+        // rows above the split are only ever seen by fine tiles
+        assert!(
+            tiles
+                .iter()
+                .filter(|t| t.rect.y < 518 - 216)
+                .all(|t| t.tile == 432)
+        );
+    }
+
+    #[test]
+    fn perspective_without_split_is_plain_tiling() {
+        let plain: Vec<_> = plan_tiles(1920, 1080, 432, 0.25);
+        for split in [None, Some(0), Some(1080), Some(5000)] {
+            let p = plan_perspective(1920, 1080, 432, 864, split, 0.25);
+            assert_eq!(p.iter().map(|t| t.rect).collect::<Vec<_>>(), plain);
+        }
+    }
 
     #[test]
     fn covers_every_pixel() {

@@ -75,8 +75,14 @@ msgstr "Más tarde"
 msgid "Masks in this frame"
 msgstr "Máscaras en este fotograma"
 
+msgid "Mirrored pass"
+msgstr "Pasada espejada"
+
 msgid "Model…"
 msgstr "Modelo…"
+
+msgid "Near camera from"
+msgstr "Cerca de la cámara desde"
 
 msgid "Next unreviewed (n) ▶"
 msgstr "Siguiente sin revisar (n) ▶"
@@ -146,6 +152,9 @@ msgstr "ningún modelo seleccionado"
 
 msgid "none"
 msgstr "ninguna"
+
+msgid "off"
+msgstr "desactivado"
 
 msgid "orange: flagged · green: reviewed · red: error · grey: people present"
 msgstr "naranja: marcado · verde: revisado · rojo: error · gris: personas"

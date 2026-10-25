@@ -302,10 +302,28 @@ fn to_source(s: &ReviewSession, x: f32, y: f32, w: f32, h: f32) -> (f32, f32) {
     ((x - ox) / scale, (y - oy) / scale)
 }
 
+/// Choices of the "Near camera from" box after "off" (fraction of frame height).
+const NEAR_BAND: [f32; 5] = [0.35, 0.40, 0.45, 0.50, 0.60];
+
+fn near_band(index: i32) -> Option<f32> {
+    usize::try_from(index - 1)
+        .ok()
+        .and_then(|i| NEAR_BAND.get(i).copied())
+}
+
+fn near_band_index(f: Option<f32>) -> i32 {
+    f.and_then(|f| NEAR_BAND.iter().position(|&b| (b - f).abs() < 0.005))
+        .map_or(0, |i| i as i32 + 1)
+}
+
 fn open_session(ui: &AppWindow, app: &Shared, path: &Path) {
     let mut a = app.borrow_mut();
     match ReviewSession::open(path) {
         Ok(s) => {
+            // a re-analysis starts from the speed options this project used
+            let t = &s.project.settings.tile;
+            ui.set_flip_pass(t.flip_pass);
+            ui.set_near_band_index(near_band_index(t.coarse_below));
             a.session = Some(s);
             a.timeline_dirty = true;
             message(ui, trf("opened {}", &[&path.display()]), false);
@@ -691,6 +709,8 @@ fn main() -> anyhow::Result<()> {
                     model,
                     text,
                     resume: false,
+                    flip: ui.get_flip_pass(),
+                    coarse_below: near_band(ui.get_near_band_index()),
                 },
             );
         }

@@ -3,9 +3,11 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
+use std::time::Duration;
 
 use anon_io::{Codec, EncodeSettings};
 use anon_model::{AnalysisSettings, ProjectDir};
+use anon_pipeline::progress::{Eta, Throttle, format_remaining};
 use anon_pipeline::{AnalyzeOptions, RenderOptions};
 
 use crate::i18n::{tr, trf};
@@ -17,6 +19,10 @@ pub enum Job {
         /// Mask jersey numbers with this text model.
         text: Option<PathBuf>,
         resume: bool,
+        /// Also run every tile mirrored (slower, slightly higher recall).
+        flip: bool,
+        /// Perspective tiling from this fraction of the frame height down.
+        coarse_below: Option<f32>,
     },
     Preview {
         dir: ProjectDir,
@@ -91,17 +97,28 @@ fn open_externally(p: &Path) {
 
 fn frames_progress(tx: &Sender<JobMsg>, label: &'static str) -> impl FnMut(u64, Option<u64>) {
     let tx = tx.clone();
+    let mut eta = Eta::new();
+    let mut throttle = Throttle::new(Duration::from_millis(500));
     move |done, total| {
-        if done % 10 != 0 {
+        let est = eta.update(done, total);
+        if !throttle.ready(done, total) {
             return;
         }
-        let (fraction, text) = match total {
+        let (fraction, mut text) = match total {
             Some(t) if t > 0 => (
                 (done as f32 / t as f32).min(1.0),
                 trf("{}: frame {} / {}", &[&tr(label), &done, &t]),
             ),
             _ => (-1.0, trf("{}: frame {}", &[&tr(label), &done])),
         };
+        if let Some(e) = est {
+            text.push_str(" · ");
+            text.push_str(&e.rate_text(tr("s/frame")));
+            if let Some(r) = e.remaining {
+                text.push_str(" · ");
+                text.push_str(&trf("{} left", &[&format_remaining(r)]));
+            }
+        }
         let _ = tx.send(JobMsg::Progress { fraction, text });
     }
 }
@@ -122,7 +139,8 @@ fn audit(
 ) -> Result<(String, bool), String> {
     let (m, mref) = anon_detect::rfdetr::load_verified(model).map_err(|e| e.to_string())?;
     let mut p = frames_progress(tx, "audit");
-    let r = anon_pipeline::audit(dir, out, Box::new(m), &mref.sha256, |n| p(n, None))
+    let total = dir.load_project().ok().map(|p| p.source.frame_count);
+    let r = anon_pipeline::audit(dir, out, Box::new(m), &mref.sha256, |n| p(n, total))
         .map_err(|e| e.to_string())?;
     Ok(if r.passed() {
         (
@@ -148,6 +166,8 @@ fn run(job: Job, tx: &Sender<JobMsg>) -> Result<(String, bool, Option<PathBuf>),
             model,
             text,
             resume,
+            flip,
+            coarse_below,
         } => {
             let (m, model_ref) =
                 anon_detect::rfdetr::load_verified(&model).map_err(|e| e.to_string())?;
@@ -164,6 +184,8 @@ fn run(job: Job, tx: &Sender<JobMsg>) -> Result<(String, bool, Option<PathBuf>),
                 .map(|p| p.settings)
                 .unwrap_or_else(|_| AnalysisSettings::default());
             settings.mask_jersey_numbers = text.is_some();
+            settings.tile.flip_pass = flip;
+            settings.tile.coarse_below = coarse_below;
             let s = anon_pipeline::analyze(
                 &src,
                 &dir,

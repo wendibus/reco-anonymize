@@ -72,6 +72,15 @@ pub struct TileSettings {
     pub full_frame_pass: bool,
     /// Also run every tile horizontally flipped.
     pub flip_pass: bool,
+    /// Perspective tiling: from this fraction of the (displayed) frame height
+    /// down, people are near the camera and large, so that band is tiled with
+    /// the coarser `coarse_tile` (downscaled into the model input). `None` =
+    /// fine tiles everywhere.
+    #[serde(default)]
+    pub coarse_below: Option<f32>,
+    /// Tile edge in source pixels for the coarse band. `0` = twice the fine tile.
+    #[serde(default)]
+    pub coarse_tile: u32,
 }
 
 impl Default for TileSettings {
@@ -81,6 +90,8 @@ impl Default for TileSettings {
             overlap: 0.25,
             full_frame_pass: true,
             flip_pass: true,
+            coarse_below: None,
+            coarse_tile: 0,
         }
     }
 }

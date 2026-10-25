@@ -4,10 +4,12 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anon_detect::rfdetr::RfDetrSeg;
 use anon_io::{Codec, EncodeSettings};
 use anon_model::{AnalysisSettings, ModelRef, ProjectDir, TileSettings, Zone};
+use anon_pipeline::progress::{Eta, Throttle, format_remaining};
 use anon_pipeline::{AnalyzeOptions, RenderOptions};
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -51,6 +53,13 @@ enum Cmd {
         no_flip: bool,
         #[arg(long)]
         no_full_frame: bool,
+        /// Perspective tiling: from this fraction of the frame height down
+        /// (0..1), use coarse tiles, e.g. 0.6 for a camera looking down a field.
+        #[arg(long)]
+        coarse_below: Option<f32>,
+        /// Coarse tile edge in source pixels (default: twice the tile).
+        #[arg(long, default_value_t = 0)]
+        coarse_tile: u32,
         #[arg(long, default_value_t = 0.15)]
         threshold: f32,
         #[arg(long, default_value_t = 1.5)]
@@ -192,18 +201,30 @@ fn load_model(path: &Path) -> Result<(RfDetrSeg, ModelRef)> {
     Ok(anon_detect::rfdetr::load_verified(path)?)
 }
 
-fn progress_line(done: u64, total: Option<u64>) {
-    if !done.is_multiple_of(25) {
-        return;
+/// Progress on stderr with frame rate and remaining time, at most twice a second.
+fn progress_line() -> impl FnMut(u64, Option<u64>) {
+    let mut eta = Eta::new();
+    let mut throttle = Throttle::new(Duration::from_millis(500));
+    move |done, total| {
+        let est = eta.update(done, total);
+        if !throttle.ready(done, total) {
+            return;
+        }
+        let mut line = match total {
+            Some(t) if t > 0 => {
+                format!("frame {done}/{t} ({:.0}%)", done as f64 * 100.0 / t as f64)
+            }
+            _ => format!("frame {done}"),
+        };
+        if let Some(e) = est {
+            line.push_str(&format!("  {}", e.rate_text("s/frame")));
+            if let Some(r) = e.remaining {
+                line.push_str(&format!("  {} left", format_remaining(r)));
+            }
+        }
+        eprint!("\r  {line}   ");
+        let _ = std::io::stderr().flush();
     }
-    match total {
-        Some(t) if t > 0 => eprint!(
-            "\r  frame {done}/{t} ({:.0}%)   ",
-            done as f64 * 100.0 / t as f64
-        ),
-        _ => eprint!("\r  frame {done}   "),
-    }
-    let _ = std::io::stderr().flush();
 }
 
 fn parse_points(s: &str) -> Result<Vec<[f32; 2]>> {
@@ -240,6 +261,8 @@ fn main() -> Result<()> {
             overlap,
             no_flip,
             no_full_frame,
+            coarse_below,
+            coarse_tile,
             threshold,
             head_expand,
             dilation,
@@ -256,6 +279,8 @@ fn main() -> Result<()> {
                     overlap,
                     full_frame_pass: !no_full_frame,
                     flip_pass: !no_flip,
+                    coarse_below,
+                    coarse_tile,
                 },
                 head_expand,
                 gap_fill_frames: gap,
@@ -281,7 +306,7 @@ fn main() -> Result<()> {
                         None => None,
                     },
                 },
-                progress_line,
+                progress_line(),
             )?;
             eprintln!();
             println!(
@@ -410,8 +435,10 @@ fn main() -> Result<()> {
             let dir = project_dir(&project);
             let (model, model_ref) = load_model(&model)?;
             eprintln!("auditing {}", output.display());
+            let total = dir.load_project().ok().map(|p| p.source.frame_count);
+            let mut progress = progress_line();
             let r = anon_pipeline::audit(&dir, &output, Box::new(model), &model_ref.sha256, |n| {
-                progress_line(n, None)
+                progress(n, total)
             })?;
             eprintln!();
             for h in r.hits.iter().take(show) {

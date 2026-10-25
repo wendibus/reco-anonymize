@@ -85,6 +85,9 @@ export component AppWindow inherits Window {
     in property <bool> dirty;
     in property <string> text-model-path;
     in-out property <bool> jersey;
+    // analysis speed: mirrored pass, perspective band (0 = off, see NEAR_BAND in main.rs)
+    in-out property <bool> flip-pass: true;
+    in-out property <int> near-band-index;
     in-out property <bool> zone-mode;
     in property <int> zone-points;
     in property <[ZoneInfo]> zones;
@@ -192,6 +195,19 @@ export component AppWindow inherits Window {
                     text: @tr("Jersey numbers");
                     enabled: root.text-model-path != "";
                     checked <=> root.jersey;
+                }
+                CheckBox {
+                    text: @tr("Mirrored pass");
+                    checked <=> root.flip-pass;
+                }
+                Text {
+                    text: @tr("Near camera from");
+                    color: #8a8a8a;
+                    vertical-alignment: center;
+                }
+                ComboBox {
+                    model: [@tr("off"), "35 %", "40 %", "45 %", "50 %", "60 %"];
+                    current-index <=> root.near-band-index;
                 }
                 Rectangle { horizontal-stretch: 1; }
                 Button {

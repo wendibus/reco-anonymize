@@ -6,7 +6,7 @@ use anon_model::{BBox, Shape, TileSettings};
 use crate::fuse::fuse;
 use crate::head::derive_head;
 use crate::image::RgbImage;
-use crate::tiling::{TileRect, plan_tiles};
+use crate::tiling::{TileRect, plan_perspective};
 use crate::{DetectError, InstanceMask, PersonInstance, PersonSegmenter};
 
 /// Source pixels within which a box counts as touching a tile edge.
@@ -158,12 +158,29 @@ impl Analyzer {
         } else {
             self.cfg.tile.tile
         };
-        let k = s as f32 / tile as f32;
+        let coarse = if self.cfg.tile.coarse_tile == 0 {
+            tile * 2
+        } else {
+            self.cfg.tile.coarse_tile
+        };
+        let split = self
+            .cfg
+            .tile
+            .coarse_below
+            .map(|f| (f.clamp(0.0, 1.0) * img.height as f32).round() as u32);
         let mut raw = Vec::new();
 
-        for r in plan_tiles(img.width, img.height, tile, self.cfg.tile.overlap) {
-            let edges = r.internal_edges(img.width, img.height);
-            self.run_region(img, r, k, "tile", edges, &mut raw)?;
+        for t in plan_perspective(
+            img.width,
+            img.height,
+            tile,
+            coarse,
+            split,
+            self.cfg.tile.overlap,
+        ) {
+            let edges = t.rect.internal_edges(img.width, img.height);
+            let k = s as f32 / t.tile as f32;
+            self.run_region(img, t.rect, k, "tile", edges, &mut raw)?;
         }
         let needs_full = img.width > tile || img.height > tile;
         if self.cfg.tile.full_frame_pass && needs_full {
@@ -270,5 +287,40 @@ mod tests {
         assert!(d.heads[0].passes.contains(&"tile_flip"));
         // head sits at top of person
         assert!(d.heads[0].head.y1 <= 50.0 + 40.0 * 0.25);
+    }
+
+    fn paint_red(img: &mut RgbImage, xs: std::ops::Range<u32>, ys: std::ops::Range<u32>) {
+        for y in ys {
+            for x in xs.clone() {
+                let i = ((y * img.width + x) * 3) as usize;
+                img.data[i] = 255;
+            }
+        }
+    }
+
+    #[test]
+    fn perspective_tiling_finds_far_and_near_people() {
+        let mut img = RgbImage::new(800, 240);
+        paint_red(&mut img, 100..106, 30..42); // small, far away
+        paint_red(&mut img, 500..540, 140..220); // large, near the camera
+        let mut c = cfg();
+        c.tile.flip_pass = false;
+        c.tile.full_frame_pass = false;
+        c.tile.coarse_below = Some(0.5);
+        let mut a = Analyzer::new(Box::new(RedFinder(64)), c);
+        let d = a.analyze(&img).unwrap();
+        assert_eq!(d.heads.len(), 2, "{:?}", d.heads);
+        let mut persons: Vec<BBox> = d.heads.iter().map(|h| h.person).collect();
+        persons.sort_by(|a, b| a.x0.total_cmp(&b.x0));
+        let (far, near) = (persons[0], persons[1]);
+        assert!(
+            (far.x0 - 100.0).abs() < 1.5 && (far.y0 - 30.0).abs() < 1.5,
+            "{far:?}"
+        );
+        // coarse tiles are downscaled 2x: boxes are accurate to ~2 source px
+        assert!(
+            (near.x0 - 500.0).abs() < 3.0 && (near.y1 - 220.0).abs() < 3.0,
+            "{near:?}"
+        );
     }
 }

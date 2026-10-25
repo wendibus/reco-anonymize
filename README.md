@@ -52,6 +52,11 @@ reco-anon status  game.mp4                                          # export CLE
 ```
 
 - Long analyses checkpoint every 250 frames; after a crash continue with `analyze … --resume`.
+- Progress shows the frame rate and the estimated time left.
+- Speed: every tile is also run mirrored by default (`--no-flip` halves the work). For a camera
+  looking down a field, `--coarse-below 0.45` tiles the lower part of the frame, where people
+  are near and large, with tiles twice the size (*Near camera from* in the app); distant
+  people above keep native-resolution tiles.
 - `audit` re-runs detection on the rendered file and checks from the output pixels that every
   head it finds is covered. Hits must be fixed or acknowledged with a reason (`audit-ack`)
   before `status` reports the export as clean. A new render voids the previous audit.

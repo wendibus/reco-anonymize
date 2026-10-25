@@ -318,6 +318,8 @@ const TABLE: &[(&str, &str, &str, &str)] = &[
         "{} : image {}",
         "{}: fotograma {}",
     ),
+    ("s/frame", "s/Frame", "s/image", "s/fotograma"),
+    ("{} left", "noch {}", "encore {}", "quedan {}"),
     ("analyze", "Analyse", "analyse", "análisis"),
     ("audit", "Prüfung", "contrôle", "auditoría"),
     ("export", "Export", "export", "exportación"),

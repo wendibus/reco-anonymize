@@ -76,6 +76,7 @@ fn opts() -> AnalyzeOptions {
                 overlap: 0.25,
                 full_frame_pass: true,
                 flip_pass: true,
+                ..TileSettings::default()
             },
             ..AnalysisSettings::default()
         },
