@@ -4,7 +4,8 @@
 use anon_model::{BBox, Shape, TileSettings};
 
 use crate::fuse::fuse;
-use crate::head::derive_head;
+use crate::fuse::resample_mask;
+use crate::head::derive_heads;
 use crate::image::RgbImage;
 use crate::tiling::{TileRect, plan_perspective};
 use crate::{DetectError, InstanceMask, PersonInstance, PersonSegmenter};
@@ -126,8 +127,8 @@ impl Analyzer {
                     continue;
                 }
                 if b != p.bbox {
-                    // Clipping invalidates the mask grid alignment.
-                    p.mask = None;
+                    // keep the part of the mask inside the clipped box
+                    p.mask = p.mask.take().and_then(|m| resample_mask(&p.bbox, &m, &b));
                 }
                 let src = BBox::new(
                     r.x as f32 + b.x0 / k,
@@ -152,6 +153,27 @@ impl Analyzer {
     }
 
     pub fn analyze(&mut self, img: &RgbImage) -> Result<FrameDetections, DetectError> {
+        let (persons, raw_count) = self.persons(img)?;
+        let heads = persons
+            .iter()
+            .flat_map(|p| {
+                derive_heads(p).into_iter().map(|h| HeadRegion {
+                    shape: Shape::ellipse_around(&h.bbox, self.cfg.head_expand),
+                    head: h.bbox,
+                    person: p.bbox,
+                    score: p.score,
+                    low_score: p.score < self.cfg.flag_below,
+                    arms_up: h.arms_up,
+                    passes: p.passes.clone(),
+                })
+            })
+            .collect();
+        Ok(FrameDetections { heads, raw_count })
+    }
+
+    /// All passes over `img`, fused into person instances (source
+    /// coordinates), plus the number of raw detections before fusion.
+    pub fn persons(&mut self, img: &RgbImage) -> Result<(Vec<PersonInstance>, usize), DetectError> {
         let s = self.model.input_size();
         let tile = if self.cfg.tile.tile == 0 {
             s
@@ -195,22 +217,7 @@ impl Analyzer {
         }
 
         let raw_count = raw.len();
-        let heads = fuse(raw)
-            .into_iter()
-            .map(|p| {
-                let h = derive_head(&p);
-                HeadRegion {
-                    shape: Shape::ellipse_around(&h.bbox, self.cfg.head_expand),
-                    head: h.bbox,
-                    person: p.bbox,
-                    score: p.score,
-                    low_score: p.score < self.cfg.flag_below,
-                    arms_up: h.arms_up,
-                    passes: p.passes,
-                }
-            })
-            .collect();
-        Ok(FrameDetections { heads, raw_count })
+        Ok((fuse(raw), raw_count))
     }
 }
 

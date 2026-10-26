@@ -56,6 +56,10 @@ reco-anon status  game.mp4                                          # export CLE
 - Scene transitions (hard cuts, crossfades, wipes, very fast camera swings) are found from tiny
   thumbnails. No track crosses one, and inside a transition every frame is detected, so a
   crossfade with both shots visible is covered too. `analyze` prints how many it found.
+- Heads come from each person's mask: the narrowest row below the head (the neck), or the top
+  fifth when there is none. A mask that holds several people (a row on a bench, a group the
+  model segmented as one) is split into one head per peak of its upper contour, unless a raised
+  hand is among them; then the whole band stays masked.
 - Speed: every tile is also run mirrored by default (`--no-flip` halves the work). For a camera
   looking down a field, `--coarse-below 0.45` tiles the lower part of the frame, where people
   are near and large, with tiles twice the size (*Near camera from* in the app); distant

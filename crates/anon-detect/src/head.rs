@@ -32,6 +32,91 @@ fn widen(b: BBox) -> BBox {
     BBox::new(cx - min_w / 2.0, b.y0, cx + min_w / 2.0, b.y1)
 }
 
+/// A head band wider than this multiple of its height may hold several heads.
+pub const SPLIT_ASPECT: f32 = 1.6;
+/// A split part must be at least this fraction of the head height wide to
+/// count as a head. A narrower part reaching up to head level (a raised
+/// hand) cancels the split; a narrower one lower down (a shoulder) is ignored.
+const MIN_HEAD_WIDTH: f32 = 0.6;
+
+/// The head(s) of one person instance. A mask that holds several people (a
+/// row on a bench, a group segmented as one) yields one head per peak of its
+/// upper contour instead of one flat band across all of them.
+pub fn derive_heads(p: &PersonInstance) -> Vec<DerivedHead> {
+    let one = derive_head(p);
+    match &p.mask {
+        Some(m) if one.bbox.width() > SPLIT_ASPECT * one.bbox.height() => {
+            split_heads(&p.bbox, m, &one).unwrap_or_else(|| vec![one])
+        }
+        _ => vec![one],
+    }
+}
+
+/// Columns whose top edge lies at most half a head height below the highest
+/// point within half a head height around them belong to a head; each run of
+/// such columns is one head. Shoulders next to a head are lower than that and
+/// drop out. Every column within half a head height of the mask's top stays
+/// inside some head (its neighbourhood cannot be higher than the top), so the
+/// heads cover what the band covered there. `None` (keep the band) unless it
+/// yields at least two head-wide parts and no raised hand.
+fn split_heads(b: &BBox, m: &InstanceMask, one: &DerivedHead) -> Option<Vec<DerivedHead>> {
+    let cw = b.width() / m.w as f32;
+    let ch = b.height() / m.h as f32;
+    // head height in cells: the plain top-of-person share, not the taller
+    // raised-arms band (several heads side by side also look like that)
+    let rows = (0..m.h).filter(|&y| (0..m.w).any(|x| m.get(x, y))).count() as f32;
+    let band = ((rows * DEFAULT_CUT).round() as i64).max(2);
+    let top: Vec<Option<i64>> = (0..m.w)
+        .map(|x| (0..m.h).find(|&y| m.get(x, y)).map(i64::from))
+        .collect();
+    let reach = (band / 2).max(1);
+    let w = i64::from(m.w);
+    let head_col: Vec<bool> = (0..w)
+        .map(|x| {
+            let Some(t) = top[x as usize] else {
+                return false;
+            };
+            let near = ((x - reach).max(0)..=(x + reach).min(w - 1))
+                .filter_map(|i| top[i as usize])
+                .min()
+                .unwrap_or(t);
+            t <= near + band / 2
+        })
+        .collect();
+    let mut runs = Vec::new();
+    let mut x = 0;
+    while x < w {
+        if !head_col[x as usize] {
+            x += 1;
+            continue;
+        }
+        let l = x;
+        while x < w && head_col[x as usize] {
+            x += 1;
+        }
+        let t0 = (l..x).filter_map(|i| top[i as usize]).min()?;
+        runs.push((l, x, t0));
+    }
+    let wide = |&(l, r, _): &(i64, i64, i64)| (r - l) as f32 >= MIN_HEAD_WIDTH * band as f32;
+    let head_level = runs.iter().filter(|r| wide(r)).map(|r| r.2).max()?;
+    if runs.iter().any(|r| !wide(r) && r.2 <= head_level) {
+        return None;
+    }
+    let mut heads = Vec::new();
+    for &(l, r, t0) in runs.iter().filter(|r| wide(r)) {
+        heads.push(DerivedHead {
+            bbox: widen(BBox::new(
+                b.x0 + l as f32 * cw,
+                b.y0 + t0 as f32 * ch,
+                b.x0 + r as f32 * cw,
+                b.y0 + (t0 + band) as f32 * ch,
+            )),
+            arms_up: one.arms_up,
+        });
+    }
+    (heads.len() >= 2).then_some(heads)
+}
+
 pub fn derive_head(p: &PersonInstance) -> DerivedHead {
     match &p.mask {
         Some(m) => from_mask(&p.bbox, m).unwrap_or_else(|| from_box(&p.bbox)),
@@ -178,6 +263,54 @@ mod tests {
             truncated: false,
             passes: vec![],
         }
+    }
+
+    #[test]
+    fn row_of_seated_people_gives_one_head_each() {
+        // three heads (6 wide, 6 tall) on one continuous band of shoulders
+        let m = figure(
+            40,
+            30,
+            &[(0, 6, 3, 9), (2, 8, 17, 23), (1, 7, 31, 37), (8, 30, 0, 40)],
+        );
+        let p = person(m);
+        assert!(derive_head(&p).bbox.width() > 30.0, "one band across all");
+        let heads = derive_heads(&p);
+        assert_eq!(heads.len(), 3, "{heads:?}");
+        for (h, x) in heads.iter().zip([6.0, 20.0, 34.0]) {
+            let (cx, _) = h.bbox.center();
+            assert!((cx - (100.0 + x)).abs() < 2.5, "{h:?}");
+            assert!(h.bbox.width() < 12.0, "{h:?}");
+        }
+    }
+
+    #[test]
+    fn single_person_is_not_split() {
+        let m = figure(
+            20,
+            100,
+            &[
+                (0, 12, 6, 14),
+                (12, 15, 8, 12),
+                (15, 60, 0, 20),
+                (60, 100, 4, 16),
+            ],
+        );
+        let p = person(m);
+        assert_eq!(derive_heads(&p), vec![derive_head(&p)]);
+    }
+
+    #[test]
+    fn raised_hand_next_to_heads_keeps_the_band() {
+        // two heads and a narrow raised hand between them: no split, so the
+        // band keeps covering everything
+        let m = figure(
+            40,
+            30,
+            &[(2, 8, 3, 9), (2, 8, 29, 35), (0, 8, 18, 20), (8, 30, 0, 40)],
+        );
+        let p = person(m);
+        assert_eq!(derive_heads(&p), vec![derive_head(&p)]);
     }
 
     #[test]

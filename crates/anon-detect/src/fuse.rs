@@ -39,6 +39,35 @@ fn covered(b: &BBox, m: &Option<InstanceMask>, x: f32, y: f32) -> bool {
     }
 }
 
+/// The part of mask `m` (spanning `from`) inside the box `to`, at the same
+/// cell density. `None` when nothing of the mask lies inside.
+pub fn resample_mask(from: &BBox, m: &InstanceMask, to: &BBox) -> Option<InstanceMask> {
+    if from.width() <= 0.0 || from.height() <= 0.0 {
+        return None;
+    }
+    let w = (to.width() * m.w as f32 / from.width())
+        .ceil()
+        .clamp(1.0, MAX_MASK_CELLS) as u32;
+    let h = (to.height() * m.h as f32 / from.height())
+        .ceil()
+        .clamp(1.0, MAX_MASK_CELLS) as u32;
+    let mut bits = vec![false; (w * h) as usize];
+    for j in 0..h {
+        let y = to.y0 + (j as f32 + 0.5) * to.height() / h as f32;
+        for i in 0..w {
+            let x = to.x0 + (i as f32 + 0.5) * to.width() / w as f32;
+            if x >= from.x0 && x < from.x1 && y >= from.y0 && y < from.y1 {
+                let cx = (((x - from.x0) / from.width()) * m.w as f32) as u32;
+                let cy = (((y - from.y0) / from.height()) * m.h as f32) as u32;
+                bits[(j * w + i) as usize] = m.get(cx.min(m.w - 1), cy.min(m.h - 1));
+            }
+        }
+    }
+    bits.iter()
+        .any(|&b| b)
+        .then_some(InstanceMask { w, h, bits })
+}
+
 /// Union of two instances' boxes and masks. A missing mask counts as a
 /// fully covered box (conservative).
 pub fn merge_masks(
@@ -143,6 +172,22 @@ mod tests {
         let child = p(BBox::new(2.0, 15.0, 6.0, 29.0), 0.7, false);
         let out = fuse(vec![full, frag, child]);
         assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn clipped_mask_keeps_its_inside_part() {
+        // 4x4 mask over 0..40, left half on; clip to x 0..30
+        let m = InstanceMask {
+            w: 4,
+            h: 4,
+            bits: (0..16).map(|i| i % 4 < 2).collect(),
+        };
+        let from = BBox::new(0.0, 0.0, 40.0, 40.0);
+        let c = resample_mask(&from, &m, &BBox::new(0.0, 0.0, 30.0, 40.0)).unwrap();
+        assert_eq!((c.w, c.h), (3, 4));
+        assert!((0..4).all(|y| c.get(0, y) && c.get(1, y) && !c.get(2, y)));
+        // nothing of the mask inside: no mask
+        assert!(resample_mask(&from, &m, &BBox::new(30.0, 0.0, 40.0, 40.0)).is_none());
     }
 
     #[test]
