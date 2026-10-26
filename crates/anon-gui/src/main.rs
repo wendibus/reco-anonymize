@@ -111,6 +111,19 @@ fn message(ui: &AppWindow, text: impl Into<SharedString>, error: bool) {
     ui.set_message_error(error);
 }
 
+/// Warn when the person model has no masks: its heads are far too coarse.
+fn warn_boxes_only(ui: &AppWindow, model: Option<&Path>) {
+    if model.is_some_and(anon_detect::rfdetr::boxes_only) {
+        message(
+            ui,
+            tr(
+                "This model has no outlines: heads are only estimated from the person box and come out far too wide. Choose an RF-DETR-Seg model.",
+            ),
+            true,
+        );
+    }
+}
+
 /// Push the whole session state into the UI.
 fn refresh(ui: &AppWindow, app: &mut App) {
     ui.set_text_model_path(
@@ -469,6 +482,7 @@ fn main() -> anyhow::Result<()> {
     } else {
         refresh(&ui, &mut app.borrow_mut());
     }
+    warn_boxes_only(&ui, app.borrow().model.as_deref());
 
     // ---- navigation ------------------------------------------------------
     let (w, a) = (ui.as_weak(), app.clone());
@@ -694,6 +708,7 @@ fn main() -> anyhow::Result<()> {
             let p = settings::adopt_model(&p, "model");
             app.settings.model = Some(p.clone());
             app.settings.save();
+            warn_boxes_only(&ui, Some(&p));
             app.model = Some(p);
             refresh_buttons_only(&ui, &app);
         }

@@ -210,6 +210,10 @@ fn project_dir(p: &Path) -> ProjectDir {
     }
 }
 
+const BOXES_ONLY_WARNING: &str = "warning: this model has no masks (manifest kind person-det); \
+     heads are estimated from the person box (top fifth, full width) and come out much too wide. \
+     Use an RF-DETR-Seg model (scripts/export_rfdetr.py without --task det).";
+
 fn load_model(path: &Path) -> Result<(RfDetrSeg, ModelRef)> {
     Ok(anon_detect::rfdetr::load_verified(path)?)
 }
@@ -286,6 +290,9 @@ fn main() -> Result<()> {
             text_model,
         } => {
             let dir = project.map_or_else(|| ProjectDir::for_source(&video), ProjectDir::open);
+            if anon_detect::rfdetr::boxes_only(&model) {
+                eprintln!("{BOXES_ONLY_WARNING}");
+            }
             let (model, model_ref) = load_model(&model)?;
             let settings = AnalysisSettings {
                 person_threshold: threshold,
@@ -329,12 +336,13 @@ fn main() -> Result<()> {
             )?;
             eprintln!();
             println!(
-                "frames {} (resumed at {})  head tracks {}  text tracks {}  max persons/frame {}  flagged {}  errors {}",
+                "frames {} (resumed at {})  head tracks {}  text tracks {}  max persons/frame {}  scene transitions {}  flagged {}  errors {}",
                 s.frames,
                 s.resumed_from,
                 s.tracks,
                 s.text_tracks,
                 s.max_persons,
+                s.transitions,
                 s.flagged,
                 s.errors
             );

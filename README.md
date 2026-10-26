@@ -53,6 +53,9 @@ reco-anon status  game.mp4                                          # export CLE
 
 - Long analyses checkpoint every 250 frames; after a crash continue with `analyze … --resume`.
 - Progress shows the frame rate and the estimated time left.
+- Scene transitions (hard cuts, crossfades, wipes, very fast camera swings) are found from tiny
+  thumbnails. No track crosses one, and inside a transition every frame is detected, so a
+  crossfade with both shots visible is covered too. `analyze` prints how many it found.
 - Speed: every tile is also run mirrored by default (`--no-flip` halves the work). For a camera
   looking down a field, `--coarse-below 0.45` tiles the lower part of the frame, where people
   are near and large, with tiles twice the size (*Near camera from* in the app); distant
@@ -144,7 +147,7 @@ This writes `models/rfdetr-seg-medium.onnx.json` (sha256, licence, person class)
 refuses models whose hash does not match their manifest. Only the Apache sizes (nano … large)
 are allowed; XL/2XL use a different licence.
 
-`--task det` exports a detection-only model (boxes, no masks; heads are then taken from the top
+The app and `analyze` warn when a model without masks is chosen. `--task det` exports a detection-only model (boxes, no masks; heads are then taken from the top
 of the person box). It is 2–4× faster, but on the clip above only about 75 % of the heads were
 fully covered, so it is not recommended until a dedicated head detector is trained (see
 *Training data for a head detector*).

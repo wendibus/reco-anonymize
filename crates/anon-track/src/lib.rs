@@ -44,6 +44,11 @@ pub struct TrackerConfig {
     pub extend_frames: u32,
     /// Ellipse growth per pixel/frame of speed.
     pub motion_pad: f32,
+    /// The motion growth is capped at this multiple of the ellipse radius. A
+    /// speed far above what a head can do comes from a wrong link (another
+    /// person, a camera pan or cut) and would otherwise stretch the mask
+    /// across half the frame.
+    pub max_motion_pad: f32,
     pub head_expand: f32,
     /// Kind written to the produced tracks.
     pub kind: RegionKind,
@@ -56,6 +61,7 @@ impl Default for TrackerConfig {
             max_lost: 30,
             extend_frames: 3,
             motion_pad: 1.0,
+            max_motion_pad: 1.0,
             head_expand: 1.5,
             kind: RegionKind::Head,
         }
@@ -315,6 +321,29 @@ pub fn track_offline(frames: &[FrameDets], cfg: &TrackerConfig) -> Vec<Track> {
         .collect()
 }
 
+/// [`track_offline`] per shot: `cuts` are the first frames of new shots
+/// (scene cuts). No track links, interpolates or extrapolates across a cut,
+/// so a head is never dragged from one camera view into the next.
+pub fn track_shots(frames: &[FrameDets], cuts: &[u64], cfg: &TrackerConfig) -> Vec<Track> {
+    let n = frames.len() as u64;
+    let mut bounds: Vec<u64> = cuts.iter().copied().filter(|&c| c > 0 && c < n).collect();
+    bounds.sort_unstable();
+    bounds.dedup();
+    bounds.insert(0, 0);
+    bounds.push(n);
+    let mut out = Vec::new();
+    for w in bounds.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        for mut t in track_offline(&frames[a as usize..b as usize], cfg) {
+            for k in &mut t.keyframes {
+                k.frame += a;
+            }
+            out.push(t);
+        }
+    }
+    out
+}
+
 fn speed_at(obs: &[(u64, Det)], i: usize) -> (f32, f32) {
     let a = i.saturating_sub(1);
     let b = (i + 1).min(obs.len() - 1);
@@ -332,8 +361,8 @@ fn padded(b: &BBox, v: (f32, f32), cfg: &TrackerConfig) -> Shape {
         Shape::Ellipse { cx, cy, rx, ry } => Shape::Ellipse {
             cx,
             cy,
-            rx: rx + cfg.motion_pad * v.0.abs(),
-            ry: ry + cfg.motion_pad * v.1.abs(),
+            rx: rx + (cfg.motion_pad * v.0.abs()).min(cfg.max_motion_pad * rx),
+            ry: ry + (cfg.motion_pad * v.1.abs()).min(cfg.max_motion_pad * ry),
         },
         s => s,
     }
@@ -510,6 +539,57 @@ mod tests {
             d.dedup();
             assert_eq!(f, d);
         }
+    }
+
+    #[test]
+    fn motion_padding_is_capped() {
+        // 8 px/frame with a motion pad of 25 px per px/frame: an implausible
+        // 200 px of growth, as a wrong link would produce
+        let frames: Vec<FrameDets> = (0..6u32)
+            .map(|i| FrameDets {
+                dets: vec![det(i as f32 * 8.0, 0.0, 0.9)],
+            })
+            .collect();
+        let slow = track_offline(&frames, &TrackerConfig::default());
+        let base = TrackerConfig {
+            motion_pad: 25.0,
+            ..TrackerConfig::default()
+        };
+        let fast = track_offline(&frames, &base);
+        let rx = |t: &Track| match t.keyframes[2].shape {
+            Shape::Ellipse { rx, .. } => rx,
+            _ => panic!("ellipse expected"),
+        };
+        let r0 = match Shape::ellipse_around(&BBox::new(0.0, 0.0, 10.0, 12.0), 1.5) {
+            Shape::Ellipse { rx, .. } => rx,
+            _ => unreachable!(),
+        };
+        assert!(rx(&slow[0]) < 2.0 * r0);
+        assert!(
+            (rx(&fast[0]) - 2.0 * r0).abs() < 1e-3,
+            "{} vs {}",
+            rx(&fast[0]),
+            r0
+        );
+    }
+
+    #[test]
+    fn tracks_end_at_a_cut() {
+        // the same position before and after a cut at frame 10: without the
+        // cut it is one track, with it two, neither reaching across
+        let frames: Vec<FrameDets> = (0..20u32)
+            .map(|_| FrameDets {
+                dets: vec![det(50.0, 50.0, 0.9)],
+            })
+            .collect();
+        let cfg = TrackerConfig::default();
+        assert_eq!(track_shots(&frames, &[], &cfg).len(), 1);
+        let mut t = track_shots(&frames, &[10], &cfg);
+        assert_eq!(t.len(), 2);
+        t.sort_by_key(|t| t.keyframes[0].frame);
+        assert_eq!(t[0].keyframes.last().unwrap().frame, 9);
+        assert_eq!(t[1].keyframes[0].frame, 10);
+        assert_eq!(t[1].keyframes.last().unwrap().frame, 19);
     }
 
     #[test]

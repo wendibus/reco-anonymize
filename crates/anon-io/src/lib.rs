@@ -12,7 +12,7 @@ pub mod transcode;
 
 pub use ffmpeg_next;
 pub use probe::{VideoProbe, fingerprint, probe};
-pub use reader::{FrameReader, FrameSeeker, RgbConverter};
+pub use reader::{FrameReader, FrameSeeker, RgbConverter, THUMB_W, Thumbnailer};
 pub use transcode::{
     Codec, EncodeSettings, FrameJob, TranscodeReport, decoded_pts_secs, transcode,
 };

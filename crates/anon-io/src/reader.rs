@@ -143,6 +143,48 @@ impl RgbConverter {
     }
 }
 
+/// Tiny greyscale copy of a frame (area-averaged), for comparing frames
+/// cheaply, e.g. to find scene transitions.
+#[derive(Default)]
+pub struct Thumbnailer {
+    ctx: Option<(scaling::Context, ff::format::Pixel, u32, u32)>,
+}
+
+/// Thumbnail width; the height follows the frame's aspect ratio (at least 8).
+pub const THUMB_W: u32 = 64;
+
+impl Thumbnailer {
+    /// Returns (width, height, grey pixels row by row).
+    pub fn thumb(&mut self, f: &frame::Video) -> Result<(u32, u32, Vec<u8>), IoError> {
+        let key = (f.format(), f.width(), f.height());
+        let th =
+            ((THUMB_W as f32 * f.height() as f32 / f.width().max(1) as f32).round() as u32).max(8);
+        let stale = !matches!(&self.ctx, Some((_, fm, w, h)) if (*fm, *w, *h) == key);
+        if stale {
+            let s = scaling::Context::get(
+                key.0,
+                key.1,
+                key.2,
+                ff::format::Pixel::GRAY8,
+                THUMB_W,
+                th,
+                scaling::Flags::AREA,
+            )?;
+            self.ctx = Some((s, key.0, key.1, key.2));
+        }
+        let (s, ..) = self.ctx.as_mut().expect("scaler");
+        let mut g = frame::Video::empty();
+        s.run(f, &mut g)?;
+        let stride = g.stride(0);
+        let src = g.data(0);
+        let mut data = Vec::with_capacity((THUMB_W * th) as usize);
+        for y in 0..th as usize {
+            data.extend_from_slice(&src[y * stride..y * stride + THUMB_W as usize]);
+        }
+        Ok((THUMB_W, th, data))
+    }
+}
+
 /// Random access to frames by pts, for the review app. Steps forward by
 /// decoding when the target is close, otherwise seeks to the preceding
 /// keyframe and decodes up to the target.

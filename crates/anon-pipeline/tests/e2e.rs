@@ -742,3 +742,66 @@ fn millisecond_timing_follows_the_frame_rate() {
     }
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// A hard cut (the background changes at frame 25) with the player at the
+/// same spot on both sides: the tracks end at the cut, and the cut frame is
+/// detected even though it falls between two detection steps.
+#[test]
+fn tracks_do_not_cross_a_scene_cut() {
+    if !have("ffmpeg") || !have("ffprobe") {
+        eprintln!("skipped: ffmpeg/ffprobe not installed");
+        return;
+    }
+    let dir: PathBuf = std::env::temp_dir().join(format!("anon-e2e-cut-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("cut.mp4");
+    let st = Command::new("ffmpeg")
+        .args(["-v", "error", "-y"])
+        .args([
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=0x606060:size=320x240:rate=25:duration=1",
+        ])
+        .args([
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=0x203080:size=320x240:rate=25:duration=1",
+        ])
+        .args([
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:size=20x80:rate=25:duration=2",
+        ])
+        .args([
+            "-filter_complex",
+            "[0:v][1:v]concat=n=2:v=1[bg];[bg][2:v]overlay=x=150:y=80",
+        ])
+        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
+        .arg(&src)
+        .status()
+        .unwrap();
+    assert!(st.success());
+    let proj = ProjectDir::for_source(&src);
+
+    let mut o = opts();
+    o.settings.detect_every = 2;
+    let s = analyze(&src, &proj, Box::new(RedFinder), o, |_, _| {}).unwrap();
+    assert_eq!((s.frames, s.errors), (50, 0));
+    assert_eq!(s.transitions, 1);
+    assert_eq!(s.tracks, 2, "one track per shot");
+    let mut tracks = proj.load_tracks().unwrap().tracks;
+    tracks.sort_by_key(|t| t.keyframes[0].frame);
+    assert_eq!(tracks[0].keyframes.last().unwrap().frame, 24);
+    assert_eq!(tracks[1].keyframes[0].frame, 25);
+    let log = std::fs::read_to_string(proj.path("detections.jsonl")).unwrap();
+    assert!(
+        log.lines().any(|l| l.contains("\"frame\":25,")),
+        "the cut frame must be detected"
+    );
+    // nothing to review: both tracks start/end with their shots
+    assert_eq!(s.flagged, 0, "{:?}", status(&proj, 10).unwrap().flagged);
+    std::fs::remove_dir_all(&dir).ok();
+}

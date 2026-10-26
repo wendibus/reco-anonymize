@@ -13,17 +13,18 @@ use anon_detect::PersonSegmenter;
 use anon_detect::analyzer::{Analyzer, AnalyzerConfig};
 use anon_detect::image::unrotate_point;
 use anon_detect::text::TextDetector;
-use anon_io::{FrameReader, RgbConverter};
+use anon_io::{FrameReader, RgbConverter, Thumbnailer};
 use anon_model::frames::flag;
 use anon_model::{
     AnalysisSettings, BBox, Fingerprint, FrameRecord, FrameStatus, FrameTable, ModelRef, Project,
     ProjectDir, RegionKind, ReviewState, SCHEMA_VERSION, SourceInfo, TrackSet,
 };
-use anon_track::{Det, FrameDets, TrackerConfig, pass_bits, track_offline};
+use anon_track::{Det, FrameDets, TrackerConfig, pass_bits, track_shots};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::PipelineError;
+use crate::transition::{Transition, TransitionDetector};
 
 /// Frames between checkpoints.
 pub const CHECKPOINT_EVERY: u64 = 250;
@@ -49,6 +50,9 @@ pub struct AnalyzeSummary {
     pub tracks: usize,
     pub text_tracks: usize,
     pub max_persons: u16,
+    /// Scene transitions found (cuts, crossfades, fast swings); no track
+    /// crosses one.
+    pub transitions: usize,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -246,6 +250,13 @@ pub fn analyze(
 
     let mut reader = FrameReader::open(src)?;
     let mut rgb = RgbConverter::default();
+    // scene transitions: tracks never cross them, and inside a transition
+    // window (both shots visible in a crossfade) every frame is detected
+    let mut thumbs = Thumbnailer::default();
+    let mut transitions = TransitionDetector::new();
+    let mut cuts: Vec<u64> = Vec::new();
+    // the frame step counts from the end of the last transition window
+    let mut phase: u64 = 0;
     let mut prev_persons: u16 = frames.records.last().map_or(0, |r| r.persons);
     let mut max_persons: u16 = frames.records.iter().map(|r| r.persons).max().unwrap_or(0);
 
@@ -268,6 +279,22 @@ pub fn analyze(
         };
         let Some((frame, pts)) = next else { break };
 
+        let tr = match thumbs.thumb(&frame) {
+            Ok((tw, th, t)) => transitions.push(tw, th, t),
+            Err(e) => {
+                // cannot tell: detect this frame rather than skip it
+                log::warn!("frame {index}: no thumbnail for transition check: {e}");
+                Transition::Inside
+            }
+        };
+        if tr == Transition::Start {
+            cuts.push(index);
+        }
+        let detect = tr != Transition::None || (index - phase).is_multiple_of(step);
+        if tr != Transition::None {
+            phase = index + 1;
+        }
+
         if index < resumed_from {
             // Already analysed before the interruption: the decoder must
             // reproduce the same timeline, otherwise the logs are unusable.
@@ -285,7 +312,7 @@ pub fn analyze(
         let mut rec = FrameRecord::missing(pts);
         let mut fdets = FrameDets::default();
         let mut tdets = FrameDets::default();
-        let result = index.is_multiple_of(step).then(|| {
+        let result = detect.then(|| {
             rgb.convert(&frame)
                 .map_err(|e| e.to_string())
                 .and_then(|img| {
@@ -400,10 +427,11 @@ pub fn analyze(
         head_expand: settings.head_expand,
         ..TrackerConfig::default()
     };
-    let mut auto = track_offline(&all_dets, &tcfg);
+    let mut auto = track_shots(&all_dets, &cuts, &tcfg);
     let text_tracks = if settings.mask_jersey_numbers {
-        track_offline(
+        track_shots(
             &all_text,
+            &cuts,
             &TrackerConfig {
                 kind: RegionKind::Text,
                 head_expand: 1.2,
@@ -414,14 +442,20 @@ pub fn analyze(
         Vec::new()
     };
 
-    // Review flags that need the whole track picture.
+    // Review flags that need the whole track picture. A track that starts
+    // at the first detected frame of its shot or ends after the last one did
+    // not appear or vanish in view: the shot (or clip) begins or ends there.
     let last = index.saturating_sub(1);
+    let shot_start = |f: u64| cuts.iter().rev().find(|&&c| c <= f).copied().unwrap_or(0);
+    let shot_end = |f: u64| cuts.iter().find(|&&c| c > f).map_or(last, |&c| c - 1);
     for t in &auto {
         let observed: Vec<_> = t.keyframes.iter().filter(|k| !k.interpolated).collect();
         let (Some(first), Some(end)) = (observed.first(), observed.last()) else {
             continue;
         };
-        for (k, at_clip_edge) in [(first, first.frame == 0), (end, end.frame == last)] {
+        let starts_shot = first.frame == shot_start(first.frame);
+        let ends_shot = end.frame + step > shot_end(end.frame);
+        for (k, at_clip_edge) in [(first, starts_shot), (end, ends_shot)] {
             if !at_clip_edge && !near_border(&k.shape.bounds(), w, h) {
                 frames.records[k.frame as usize].flags |= flag::TRACK_EDGE;
             }
@@ -469,5 +503,6 @@ pub fn analyze(
         tracks: auto_count,
         text_tracks: text_count,
         max_persons,
+        transitions: cuts.len(),
     })
 }

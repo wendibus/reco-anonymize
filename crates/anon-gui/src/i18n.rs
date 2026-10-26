@@ -319,6 +319,12 @@ const TABLE: &[(&str, &str, &str, &str)] = &[
         "{}: fotograma {}",
     ),
     ("s/frame", "s/Frame", "s/image", "s/fotograma"),
+    (
+        "This model has no outlines: heads are only estimated from the person box and come out far too wide. Choose an RF-DETR-Seg model.",
+        "Dieses Modell liefert keine Umrisse: Köpfe werden nur aus dem Personen-Rechteck geschätzt und viel zu breit. Bitte ein RF-DETR-Seg-Modell wählen.",
+        "Ce modèle ne fournit pas de contours : les têtes sont seulement estimées à partir du cadre de la personne et deviennent bien trop larges. Choisissez un modèle RF-DETR-Seg.",
+        "Este modelo no da contornos: las cabezas solo se estiman a partir del recuadro de la persona y salen demasiado anchas. Elige un modelo RF-DETR-Seg.",
+    ),
     ("{} left", "noch {}", "encore {}", "quedan {}"),
     ("analyze", "Analyse", "analyse", "análisis"),
     ("audit", "Prüfung", "contrôle", "auditoría"),

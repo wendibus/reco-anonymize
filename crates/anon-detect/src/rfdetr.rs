@@ -356,6 +356,23 @@ pub fn verify_manifest(
     Ok((manifest, r))
 }
 
+/// The `kind` in a model's manifest, without checking its hash (for UI
+/// hints; loading still goes through [`load_verified`]).
+pub fn manifest_kind(path: &Path) -> Option<String> {
+    let mut mp = path.as_os_str().to_owned();
+    mp.push(".json");
+    let bytes = std::fs::read(std::path::PathBuf::from(mp)).ok()?;
+    serde_json::from_slice::<ModelManifest>(&bytes)
+        .ok()
+        .map(|m| m.kind)
+}
+
+/// True for detection-only person models: heads are then estimated from the
+/// person box (top fifth, full width), which is much coarser than from a mask.
+pub fn boxes_only(path: &Path) -> bool {
+    manifest_kind(path).as_deref() == Some("person-det")
+}
+
 /// Load a person model (segmentation, or detection-only with box-based head
 /// derivation) only if its sha256 matches its manifest.
 pub fn load_verified(path: &Path) -> Result<(RfDetrSeg, anon_model::ModelRef), DetectError> {
