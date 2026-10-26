@@ -129,7 +129,8 @@ fn refresh(ui: &AppWindow, app: &mut App) {
             .into(),
     );
     let Some(s) = app.session.as_mut() else {
-        ui.set_has_project(false);
+        // a video waiting for its first analysis stays open (Analyze enabled)
+        ui.set_has_project(PENDING.with(|p| p.borrow().is_some()));
         return;
     };
     ui.set_has_project(true);
@@ -325,6 +326,7 @@ fn open_session(ui: &AppWindow, app: &Shared, path: &Path) {
             ui.set_flip_pass(t.flip_pass);
             ui.set_near_band_index(near_band_index(t.coarse_below));
             ui.set_detect_every_index(s.project.settings.detect_every.clamp(1, 3) as i32 - 1);
+            PENDING.with(|p| *p.borrow_mut() = None);
             a.session = Some(s);
             a.timeline_dirty = true;
             message(ui, trf("opened {}", &[&path.display()]), false);
@@ -340,7 +342,7 @@ fn open_session(ui: &AppWindow, app: &Shared, path: &Path) {
                         "{} has no analysis yet. Choose a model and press Analyze.",
                         &[&path.display()],
                     ),
-                    true,
+                    false,
                 );
                 ui.set_has_project(true);
                 ui.set_project_name(path.display().to_string().into());
@@ -352,6 +354,7 @@ fn open_session(ui: &AppWindow, app: &Shared, path: &Path) {
                 refresh_buttons_only(ui, &a);
                 return;
             }
+            PENDING.with(|p| *p.borrow_mut() = None);
             message(ui, trf("cannot open {}: {}", &[&path.display(), &e]), true);
         }
     }
