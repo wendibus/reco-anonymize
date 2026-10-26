@@ -144,11 +144,11 @@ msgstr "Zonen (immer maskiert)"
 msgid "auto"
 msgstr "auto"
 
-msgid "every 2nd frame"
-msgstr "jedes 2. Frame"
+msgid "every 100 ms"
+msgstr "alle 100 ms"
 
-msgid "every 3rd frame"
-msgstr "jedes 3. Frame"
+msgid "every 67 ms"
+msgstr "alle 67 ms"
 
 msgid "every frame"
 msgstr "jedes Frame"

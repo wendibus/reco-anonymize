@@ -64,13 +64,22 @@ enum Cmd {
         threshold: f32,
         #[arg(long, default_value_t = 1.5)]
         head_expand: f32,
-        #[arg(long, default_value_t = 3)]
-        dilation: u32,
+        /// Extend every mask this long before and after its track (converted
+        /// to frames with the clip's frame rate, rounded up).
+        #[arg(long, default_value_t = 100)]
+        dilation_ms: u32,
+        /// Dilation in frames instead of milliseconds.
+        #[arg(long, conflicts_with = "dilation_ms")]
+        dilation: Option<u32>,
         #[arg(long, default_value_t = 30)]
         gap: u32,
-        /// Run the detector on every n-th frame only (1..=dilation+1); the
-        /// tracker interpolates the frames in between.
-        #[arg(long, default_value_t = 1)]
+        /// Run the detector only every this many milliseconds (e.g. 67: every
+        /// 2nd frame at 30 fps, every 4th at 60 fps); the tracker fills the
+        /// frames in between. At most the dilation plus one frame.
+        #[arg(long)]
+        detect_interval_ms: Option<u32>,
+        /// Detection interval in frames instead of milliseconds.
+        #[arg(long, conflicts_with = "detect_interval_ms", default_value_t = 1)]
         detect_every: u32,
         /// Also mask jersey numbers / text on players with this PP-OCR det
         /// model (manifest kind "text-db", see scripts/fetch_ppocr.py).
@@ -269,8 +278,10 @@ fn main() -> Result<()> {
             coarse_tile,
             threshold,
             head_expand,
+            dilation_ms,
             dilation,
             gap,
+            detect_interval_ms,
             detect_every,
             text_model,
         } => {
@@ -289,9 +300,11 @@ fn main() -> Result<()> {
                 },
                 head_expand,
                 gap_fill_frames: gap,
-                dilation_frames: dilation,
+                dilation_frames: dilation.unwrap_or(3),
+                dilation_ms: dilation.is_none().then_some(dilation_ms),
                 mask_jersey_numbers: text_model.is_some(),
                 detect_every,
+                detect_interval_ms,
                 ..AnalysisSettings::default()
             };
             eprintln!("analyzing {} -> {}", video.display(), dir.root.display());

@@ -88,8 +88,8 @@ export component AppWindow inherits Window {
     // analysis speed: mirrored pass, perspective band (0 = off, see NEAR_BAND in main.rs)
     in-out property <bool> flip-pass: true;
     in-out property <int> near-band-index;
-    // 0 = detect on every frame, 1 = every 2nd, 2 = every 3rd
-    in-out property <int> detect-every-index;
+    // 0 = detect on every frame, else DETECT_INTERVAL in main.rs
+    in-out property <int> detect-interval-index;
     in-out property <bool> zone-mode;
     in property <int> zone-points;
     in property <[ZoneInfo]> zones;
@@ -212,8 +212,8 @@ export component AppWindow inherits Window {
                     current-index <=> root.near-band-index;
                 }
                 ComboBox {
-                    model: [@tr("every frame"), @tr("every 2nd frame"), @tr("every 3rd frame")];
-                    current-index <=> root.detect-every-index;
+                    model: [@tr("every frame"), @tr("every 67 ms"), @tr("every 100 ms")];
+                    current-index <=> root.detect-interval-index;
                 }
                 Rectangle { horizontal-stretch: 1; }
                 Button {

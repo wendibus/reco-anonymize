@@ -317,6 +317,20 @@ fn near_band_index(f: Option<f32>) -> i32 {
         .map_or(0, |i| i as i32 + 1)
 }
 
+/// Choices of the detection-interval box after "every frame" (milliseconds).
+const DETECT_INTERVAL: [u32; 2] = [67, 100];
+
+fn detect_interval(index: i32) -> Option<u32> {
+    usize::try_from(index - 1)
+        .ok()
+        .and_then(|i| DETECT_INTERVAL.get(i).copied())
+}
+
+fn detect_interval_index(ms: Option<u32>) -> i32 {
+    ms.and_then(|ms| DETECT_INTERVAL.iter().position(|&d| d == ms))
+        .map_or(0, |i| i as i32 + 1)
+}
+
 fn open_session(ui: &AppWindow, app: &Shared, path: &Path) {
     let mut a = app.borrow_mut();
     match ReviewSession::open(path) {
@@ -325,7 +339,9 @@ fn open_session(ui: &AppWindow, app: &Shared, path: &Path) {
             let t = &s.project.settings.tile;
             ui.set_flip_pass(t.flip_pass);
             ui.set_near_band_index(near_band_index(t.coarse_below));
-            ui.set_detect_every_index(s.project.settings.detect_every.clamp(1, 3) as i32 - 1);
+            ui.set_detect_interval_index(detect_interval_index(
+                s.project.settings.detect_interval_ms,
+            ));
             PENDING.with(|p| *p.borrow_mut() = None);
             a.session = Some(s);
             a.timeline_dirty = true;
@@ -721,7 +737,7 @@ fn main() -> anyhow::Result<()> {
                     resume: false,
                     flip: ui.get_flip_pass(),
                     coarse_below: near_band(ui.get_near_band_index()),
-                    detect_every: (ui.get_detect_every_index().clamp(0, 2) + 1) as u32,
+                    detect_interval_ms: detect_interval(ui.get_detect_interval_index()),
                 },
             );
         }

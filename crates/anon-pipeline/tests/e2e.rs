@@ -658,3 +658,87 @@ fn detecting_every_other_frame_still_masks_every_frame() {
     }
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Detection interval and dilation in milliseconds follow the frame rate:
+/// at 50 fps, 80 ms is every 4th frame and 100 ms of dilation is 5 frames.
+#[test]
+fn millisecond_timing_follows_the_frame_rate() {
+    if !have("ffmpeg") || !have("ffprobe") {
+        eprintln!("skipped: ffmpeg/ffprobe not installed");
+        return;
+    }
+    let dir: PathBuf = std::env::temp_dir().join(format!("anon-e2e-ms-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("game50.mp4");
+    let st = Command::new("ffmpeg")
+        .args(["-v", "error", "-y"])
+        .args([
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=0x606060:size=320x240:rate=50:duration=2",
+        ])
+        .args([
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:size=20x80:rate=50:duration=2",
+        ])
+        .args(["-filter_complex", "[0:v][1:v]overlay=x='20+t*60':y=80"])
+        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
+        .arg(&src)
+        .status()
+        .unwrap();
+    assert!(st.success());
+    let proj = ProjectDir::for_source(&src);
+
+    // 300 ms = 15 frames: more than dilation + 1, a track could end unmasked
+    let mut o = opts();
+    o.settings.detect_interval_ms = Some(300);
+    assert!(matches!(
+        analyze(&src, &proj, Box::new(RedFinder), o, |_, _| {}),
+        Err(PipelineError::Refused(_))
+    ));
+
+    let mut o = opts();
+    o.settings.detect_interval_ms = Some(80);
+    o.settings.dilation_ms = Some(100);
+    let s = analyze(&src, &proj, Box::new(RedFinder), o, |_, _| {}).unwrap();
+    assert_eq!((s.frames, s.errors, s.tracks), (100, 0, 1));
+    let p = proj.load_project().unwrap();
+    assert_eq!(
+        (p.settings.detect_every, p.settings.dilation_frames),
+        (4, 5)
+    );
+    let log = std::fs::read_to_string(proj.path("detections.jsonl")).unwrap();
+    assert!(!log.is_empty());
+    assert!(
+        log.lines().all(|l| {
+            let v: serde_json::Value = serde_json::from_str(l).unwrap();
+            v["frame"].as_u64().unwrap().is_multiple_of(4)
+        }),
+        "detector ran between the 80 ms steps"
+    );
+
+    approve(&proj, None, false).unwrap();
+    let out = dir.join("anon.mp4");
+    let ro = RenderOptions {
+        encode: EncodeSettings {
+            codec: Codec::H264,
+            encoder: Some("libx264".into()),
+            quality: 80,
+        },
+        preview: false,
+    };
+    assert_eq!(render(&proj, &out, &ro).unwrap().fully_opaque_frames, 0);
+    for frame in [1u32, 2, 3, 50, 99] {
+        let t = frame as f32 / 50.0;
+        let x = (20.0 + t * 60.0) as u32 + 10;
+        let head = rgb_at(&out, x, 84, frame);
+        assert!(
+            head.iter().all(|&c| c < 40),
+            "frame {frame}: head not masked {head:?}"
+        );
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}

@@ -182,6 +182,11 @@ pub fn analyze(
     };
 
     let mut settings = opts.settings;
+    let fps = (probe.avg_frame_rate.den > 0)
+        .then(|| f64::from(probe.avg_frame_rate.num) / f64::from(probe.avg_frame_rate.den));
+    settings
+        .resolve_timing(fps.unwrap_or(f64::NAN))
+        .map_err(PipelineError::Refused)?;
     settings.models = vec![opts.model_ref];
     let mut text_detector = match (settings.mask_jersey_numbers, opts.text) {
         (true, Some((d, r))) => {
@@ -226,7 +231,8 @@ pub fn analyze(
     let step = u64::from(settings.detect_every);
     if step == 0 || step > u64::from(settings.dilation_frames) + 1 {
         return Err(PipelineError::Refused(format!(
-            "detecting every {step} frames needs 1..={} (dilation + 1), otherwise a track can end unmasked",
+            "detecting every {step} frames needs 1..={} (dilation + 1), otherwise a track can end unmasked; \
+             use a shorter detection interval or a longer dilation",
             settings.dilation_frames + 1
         )));
     }
@@ -235,10 +241,7 @@ pub fn analyze(
     let (dw, dh) = if rot % 180 == 0 { (w, h) } else { (h, w) };
     let expected = probe
         .duration_secs
-        .zip(
-            (probe.avg_frame_rate.den > 0)
-                .then(|| f64::from(probe.avg_frame_rate.num) / f64::from(probe.avg_frame_rate.den)),
-        )
+        .zip(fps)
         .map(|(d, fps)| (d * fps).round() as u64);
 
     let mut reader = FrameReader::open(src)?;

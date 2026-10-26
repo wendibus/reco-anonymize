@@ -56,8 +56,12 @@ reco-anon status  game.mp4                                          # export CLE
 - Speed: every tile is also run mirrored by default (`--no-flip` halves the work). For a camera
   looking down a field, `--coarse-below 0.45` tiles the lower part of the frame, where people
   are near and large, with tiles twice the size (*Near camera from* in the app); distant
-  people above keep native-resolution tiles. `--detect-every 2` runs the detector on every
-  second frame and lets the tracker fill the frames in between (at most dilation + 1).
+  people above keep native-resolution tiles. `--detect-interval-ms 67` runs the detector only
+  every 67 ms (every 2nd frame at 30 fps, every 4th at 60 fps) and lets the tracker fill the
+  frames in between (*every 67 ms* in the app). The masks are extended by `--dilation-ms`
+  (default 100) before and after every track; the interval may be at most that plus one frame.
+  Both are converted to frames with the clip's frame rate, so a setting means the same at
+  25, 30 or 60 fps.
 
   Measured on a 4096×1152 soccer panorama (M4 Pro, seg-medium, 30 frames), coverage = share of
   the confident heads (score ≥ 0.5) of a full analysis that end up ≥ 95 % masked in the render:
@@ -66,8 +70,8 @@ reco-anon status  game.mp4                                          # export CLE
   |---|---|---|
   | defaults | 4.8 | 100 % (reference) |
   | `--coarse-below 0.45` | 2.6 | 99.7 % |
-  | `--coarse-below 0.45 --detect-every 2` (recommended for panoramas) | 1.3 | 99.1 % |
-  | `--coarse-below 0.45 --no-flip --detect-every 2` | 0.7 | 96.9 % |
+  | `--coarse-below 0.45 --detect-interval-ms 67` (recommended for panoramas) | 1.3 | 99.1 % |
+  | `--coarse-below 0.45 --no-flip --detect-interval-ms 67` | 0.7 | 96.9 % |
 
   On macOS the model runs through CoreML in the MLProgram format on the GPU; versions before
   0.6 used the NeuralNetwork format, which was about 9× slower (39 s/frame on that clip).

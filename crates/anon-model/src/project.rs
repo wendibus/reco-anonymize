@@ -115,10 +115,40 @@ pub struct AnalysisSettings {
     /// the frames in between. `1` = every frame.
     #[serde(default = "every_frame")]
     pub detect_every: u32,
+    /// Time between detected frames; when set, `detect_every` is derived from
+    /// it with the clip's frame rate (see [`AnalysisSettings::resolve_timing`]).
+    #[serde(default)]
+    pub detect_interval_ms: Option<u32>,
+    /// Mask extension before and after every track; when set,
+    /// `dilation_frames` is derived from it with the clip's frame rate.
+    #[serde(default)]
+    pub dilation_ms: Option<u32>,
 }
 
 fn every_frame() -> u32 {
     1
+}
+
+impl AnalysisSettings {
+    /// Derive `detect_every` and `dilation_frames` from the millisecond
+    /// options for a clip at `fps`. The dilation is rounded up (a mask never
+    /// lasts shorter than asked), the detection step to the nearest frame.
+    pub fn resolve_timing(&mut self, fps: f64) -> Result<(), String> {
+        if self.detect_interval_ms.is_none() && self.dilation_ms.is_none() {
+            return Ok(());
+        }
+        if !(fps.is_finite() && fps > 0.0) {
+            return Err("unknown frame rate: cannot convert milliseconds to frames".into());
+        }
+        let frames = |ms: u32| f64::from(ms) * fps / 1000.0;
+        if let Some(ms) = self.dilation_ms {
+            self.dilation_frames = (frames(ms) - 1e-6).ceil().max(1.0) as u32;
+        }
+        if let Some(ms) = self.detect_interval_ms {
+            self.detect_every = frames(ms).round().max(1.0) as u32;
+        }
+        Ok(())
+    }
 }
 
 impl Default for AnalysisSettings {
@@ -133,7 +163,64 @@ impl Default for AnalysisSettings {
             dilation_frames: 3,
             mask_jersey_numbers: false,
             detect_every: 1,
+            detect_interval_ms: None,
+            // 3 frames at 30 fps, and the same time at any other frame rate
+            dilation_ms: Some(100),
         }
+    }
+}
+
+#[cfg(test)]
+mod timing_tests {
+    use super::*;
+
+    fn resolved(interval: Option<u32>, dilation: Option<u32>, fps: f64) -> (u32, u32) {
+        let mut s = AnalysisSettings {
+            detect_interval_ms: interval,
+            dilation_ms: dilation,
+            ..AnalysisSettings::default()
+        };
+        s.resolve_timing(fps).unwrap();
+        (s.detect_every, s.dilation_frames)
+    }
+
+    #[test]
+    fn same_time_at_any_frame_rate() {
+        // (detect_every, dilation_frames)
+        assert_eq!(resolved(Some(67), Some(100), 30.0), (2, 3));
+        assert_eq!(resolved(Some(67), Some(100), 30000.0 / 1001.0), (2, 3));
+        assert_eq!(resolved(Some(67), Some(100), 60.0), (4, 6));
+        assert_eq!(resolved(Some(67), Some(100), 25.0), (2, 3));
+        assert_eq!(resolved(Some(100), Some(100), 120.0), (12, 12));
+    }
+
+    #[test]
+    fn frame_fields_kept_without_times() {
+        let mut s = AnalysisSettings {
+            detect_every: 2,
+            dilation_frames: 5,
+            dilation_ms: None,
+            ..AnalysisSettings::default()
+        };
+        s.resolve_timing(f64::NAN).unwrap();
+        assert_eq!((s.detect_every, s.dilation_frames), (2, 5));
+    }
+
+    #[test]
+    fn never_below_one_frame_and_needs_a_frame_rate() {
+        assert_eq!(resolved(Some(1), Some(1), 30.0), (1, 1));
+        let mut s = AnalysisSettings::default();
+        assert!(s.resolve_timing(0.0).is_err());
+    }
+
+    #[test]
+    fn old_projects_keep_their_frame_counts() {
+        let mut v = serde_json::to_value(AnalysisSettings::default()).unwrap();
+        let o = v.as_object_mut().unwrap();
+        o.remove("detect_interval_ms");
+        o.remove("dilation_ms");
+        let s: AnalysisSettings = serde_json::from_value(v).unwrap();
+        assert_eq!((s.detect_interval_ms, s.dilation_ms), (None, None));
     }
 }
 
